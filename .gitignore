@@ -1,0 +1,52 @@
+# =====================
+# Go artifacts
+# =====================
+/bin/
+/vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+coverage.out
+coverage.html
+
+# =====================
+# IDE
+# =====================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# =====================
+# OS
+# =====================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# =====================
+# Secrets (NUNCA commitear)
+# =====================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# =====================
+# AI Agent artifacts
+# =====================
+.gemini/antigravity/
+
+# =====================
+# Build/Deploy
+# =====================
+dist/
+tmp/

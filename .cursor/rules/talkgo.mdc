@@ -1,0 +1,63 @@
+---
+description: TalkGo project conventions for AI agents
+globs: ["**/*.go"]
+---
+
+## Architecture: Hexagonal (Ports & Adapters)
+
+This project uses strict Hexagonal Architecture. The dependency rule is:
+
+    adapters → ports ← domain
+    (outer)   (boundary)  (inner)
+
+### Dependency Rules (CRITICAL — violations fail CI)
+
+- `internal/domain/` MUST NOT import anything from `internal/adapters/`
+- `internal/domain/` MUST NOT import infrastructure packages (net/http, database/*, pion/*)
+- `internal/ports/` defines INTERFACES ONLY — no implementations
+- `internal/adapters/` implements interfaces from `internal/ports/`
+- `internal/app/` orchestrates domain + ports — it's the "wiring" layer
+
+### Why This Matters
+
+If you (the AI agent) import `pion/webrtc` inside `internal/domain/room/`, the domain becomes coupled to a specific WebRTC library. When we need to replace pion or add a new transport (Zoom RTMS, Teams Bot), we'd have to modify the domain — which should NEVER change for infrastructure reasons.
+
+## Go Conventions
+
+### Error Handling
+- Always wrap errors with context: `fmt.Errorf("creating room: %w", err)`
+- Never ignore errors silently: `_ = someFunc()` is forbidden
+- Use sentinel errors for domain errors: `var ErrRoomFull = errors.New("room is full")`
+
+### Constructor Pattern
+- Every type with dependencies uses a constructor: `NewXxx(deps...) *Xxx`
+- Constructors validate inputs and return errors when appropriate
+- No global state, no init() functions, no package-level vars (except sentinels)
+
+### Context
+- All I/O operations take `context.Context` as first parameter
+- Domain logic does NOT use context (it's a domain concept, not infra)
+
+### Documentation
+- All exported functions MUST have doc comments
+- Doc comments start with the function name: `// NewRoom creates a new Room...`
+
+## Testing
+
+### Strict TDD Mode is ENABLED
+- Write the test FIRST, then the implementation
+- Every interface in `ports/` MUST have a mock (manual or generated)
+- Use table-driven tests with `t.Run()` for multiple cases
+- Test file location: colocated (`foo.go` → `foo_test.go`)
+
+### Coverage Targets
+- `internal/domain/`: 80% minimum
+- `internal/adapters/`: 60% minimum
+- `internal/app/`: 70% minimum
+
+## What NOT to Do
+- Do NOT add dependencies without documenting in `docs/adr/`
+- Do NOT write business logic in adapters — adapters are thin wrappers
+- Do NOT use `init()` functions
+- Do NOT commit API keys or secrets (use environment variables)
+- Do NOT create files outside the established directory structure

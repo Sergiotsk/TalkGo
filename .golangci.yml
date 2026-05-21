@@ -1,0 +1,94 @@
+# .golangci.yml TalkGo AI Harness
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Correctness
+    - errcheck
+    - govet
+    - staticcheck
+    - typecheck
+    - ineffassign
+    - unused
+
+    # Style & Consistency
+    - gofmt
+    - goimports
+    - revive
+    - misspell
+
+    # Architecture & Boundaries
+    - depguard
+    - gocritic
+
+linters-settings:
+  depguard:
+    rules:
+      # El dominio NO puede importar infraestructura o adaptadores
+      domain-isolation:
+        list-mode: denylist
+        files:
+          - "**/internal/domain/**"
+        deny:
+          - pkg: "github.com/pion/*"
+            desc: "Domain MUST NOT import WebRTC infrastructure"
+          - pkg: "net/http"
+            desc: "Domain MUST NOT import HTTP — use ports for I/O"
+          - pkg: "database/*"
+            desc: "Domain MUST NOT import database packages"
+          - pkg: "github.com/gorilla/*"
+            desc: "Domain MUST NOT import HTTP libraries"
+          - pkg: "github.com/sashabaranov/go-openai"
+            desc: "Domain MUST NOT import OpenAI SDK — use Translator port"
+          - pkg: "encoding/json"
+            desc: "Domain SHOULD NOT handle serialization — that's adapter concern"
+
+      # Los ports NO pueden importar adapters
+      ports-isolation:
+        list-mode: denylist
+        files:
+          - "**/internal/ports/**"
+        deny:
+          - pkg: "**/internal/adapters/**"
+            desc: "Ports define interfaces — they MUST NOT import implementations"
+
+      # Nadie importa paquetes de test en código de producción
+      no-test-in-prod:
+        list-mode: denylist
+        files:
+          - "!**/*_test.go"
+        deny:
+          - pkg: "testing"
+            desc: "Package testing should only be imported in test files"
+
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        arguments:
+          - "checkPrivateReceivers"
+      - name: unexported-return
+        severity: warning
+      - name: error-return
+        severity: warning
+      - name: error-naming
+        severity: warning
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - revive
+      text: "dot-imports"
