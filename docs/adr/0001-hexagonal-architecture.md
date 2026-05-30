@@ -4,7 +4,7 @@
 Accepted
 
 ## Contexto
-El proyecto TalkGo/Bifocal necesita soportar traducción simultánea por voz en tiempo real. 
+El proyecto TalkGo necesita soportar traducción simultánea por voz en tiempo real. 
 Dado que el stack tecnológico involucra múltiples capas complejas (WebRTC con Pion, APIs de IA como OpenAI Realtime o Whisper/GPT/ElevenLabs, y mezcla de audio), acoplar el dominio de negocio a estas tecnologías externas generaría un sistema sumamente rígido, difícil de testear y propenso a errores al intentar migrar o expandir capacidades.
 
 ## Decisión
