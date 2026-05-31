@@ -29,7 +29,7 @@ linters-settings:
     rules:
       # El dominio NO puede importar infraestructura o adaptadores
       domain-isolation:
-        list-mode: denylist
+        list-mode: lax
         files:
           - "**/internal/domain/**"
         deny:
@@ -48,7 +48,7 @@ linters-settings:
 
       # Los ports NO pueden importar adapters
       ports-isolation:
-        list-mode: denylist
+        list-mode: lax
         files:
           - "**/internal/ports/**"
         deny:
@@ -57,7 +57,7 @@ linters-settings:
 
       # Nadie importa paquetes de test en código de producción
       no-test-in-prod:
-        list-mode: denylist
+        list-mode: lax
         files:
           - "!**/*_test.go"
         deny:
