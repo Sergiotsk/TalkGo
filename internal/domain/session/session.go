@@ -6,11 +6,11 @@ import (
 
 // Session represents an active WebRTC session for a participant in a room.
 type Session struct {
-	ID        string
-	RoomID    string
-	UserID    string
-	JoinedAt  time.Time
-	Active    bool
+	ID       string
+	RoomID   string
+	UserID   string
+	JoinedAt time.Time
+	Active   bool
 }
 
 // NewSession creates and initializes a new Session.
