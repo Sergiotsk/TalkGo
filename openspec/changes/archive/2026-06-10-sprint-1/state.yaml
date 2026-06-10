@@ -1,0 +1,14 @@
+change: sprint-1
+status: archived
+phases:
+  proposal: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done
+  archive: done
+artifact_store: hybrid
+created: 2026-06-10
+updated: 2026-06-10
+archived_at: 2026-06-10

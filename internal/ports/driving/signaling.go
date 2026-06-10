@@ -1,9 +1,33 @@
 package driving
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
-// SignalingHandler defines the driving port to handle WebRTC signaling exchange.
+// ErrUnknownMessageType is returned when a SignalingMessage has an unrecognized Type.
+var ErrUnknownMessageType = errors.New("unknown signaling message type")
+
+// ErrSessionNotFound is returned when a session ID does not exist.
+var ErrSessionNotFound = errors.New("session not found")
+
+// SignalingMessage represents a typed WebRTC signaling message exchanged over WebSocket.
+type SignalingMessage struct {
+	// Type identifies the message kind.
+	// Client→Server: "join" | "offer" | "ice-candidate" | "leave"
+	// Server→Client: "joined" | "answer" | "ice-candidate" | "error" | "peer-left"
+	Type      string `json:"type"`
+	RoomID    string `json:"room_id,omitempty"`
+	UserID    string `json:"user_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	SDP       string `json:"sdp,omitempty"`
+	Candidate string `json:"candidate,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+// SignalingHandler defines the driving port for WebRTC signaling dispatch.
 type SignalingHandler interface {
-	// HandleSignaling processes incoming WebRTC SDP offer/answer/ICE candidates.
-	HandleSignaling(ctx context.Context, sessionID string, message []byte) ([]byte, error)
+	// HandleSignaling processes an inbound signaling message and returns the response message.
+	// Returns ErrUnknownMessageType for unrecognized message types.
+	HandleSignaling(ctx context.Context, msg SignalingMessage) (SignalingMessage, error)
 }
