@@ -138,9 +138,7 @@ func TestHub_PeerLeft_NotifiedOnDisconnect(t *testing.T) {
 	_ = connB.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 	_, data, err := connB.ReadMessage()
 	if err != nil {
-		// peer-left not required to arrive if rooms aren't tracked at hub level
-		// This is an integration concern — skip if not received
-		t.Logf("no peer-left received (may be expected if rooms not tracked in hub): %v", err)
+		t.Errorf("expected peer-left message, got error: %v", err)
 		connB.Close()
 		return
 	}

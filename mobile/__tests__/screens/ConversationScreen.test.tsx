@@ -1,43 +1,84 @@
 // TASK-076 + TASK-086: Tests for ConversationScreen
 
 import React from 'react';
-import { render, act } from '@testing-library/react-native';
+import { render, fireEvent, act } from '@testing-library/react-native';
 import { ConversationScreen } from '../../src/screens/ConversationScreen';
 import { useSessionStore } from '../../src/store/sessionStore';
 
-// Mock all hooks used by the screen
-jest.mock('../../src/hooks/useWebRTC', () => ({
-  useWebRTC: () => ({
-    localStream: null,
-    remoteStream: null,
-    iceConnectionState: 'new',
-    createOffer: jest.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
-    setRemoteAnswer: jest.fn().mockResolvedValue(undefined),
-    addIceCandidate: jest.fn().mockResolvedValue(undefined),
-    close: jest.fn(),
+// ===== Shared mock return values (per-test configurable) =====
+
+const mockSignaling = {
+  isConnected: true,
+  sendJoin: jest.fn(),
+  sendOffer: jest.fn(),
+  sendIceCandidate: jest.fn(),
+  sendLeave: jest.fn(),
+  reconnect: jest.fn(),
+  close: jest.fn(),
+};
+
+const mockWebRTC = {
+  localStream: null,
+  remoteStream: null,
+  iceConnectionState: 'new',
+  createOffer: jest.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
+  setRemoteAnswer: jest.fn().mockResolvedValue(undefined),
+  addIceCandidate: jest.fn().mockResolvedValue(undefined),
+  close: jest.fn(),
+};
+
+// Track useReconnection callbacks for per-test triggering
+let reconnectionConfig: {
+  onReconnect: () => Promise<void>;
+  onFailed: () => void;
+  maxAttempts: number;
+  baseDelay: number;
+} | null = null;
+
+const mockReconnectionReturn = {
+  state: 'connected' as const,
+  attempt: 0,
+  trigger: jest.fn().mockImplementation(() => {
+    // When trigger is called, invoke the real onReconnect callback
+    // so the ConversationScreen's onReconnect handler gets covered
+    if (reconnectionConfig?.onReconnect) {
+      return reconnectionConfig.onReconnect();
+    }
+    return Promise.resolve();
   }),
+  cancel: jest.fn(),
+  reset: jest.fn(),
+};
+
+// Track useSignaling callbacks for per-test triggering
+let signalingConfig: Record<string, (...args: any[]) => void> = {};
+
+// ===== Module mocks =====
+
+jest.mock('../../src/hooks/useWebRTC', () => ({
+  useWebRTC: () => mockWebRTC,
 }));
 
 jest.mock('../../src/hooks/useSignaling', () => ({
-  useSignaling: () => ({
-    isConnected: true,
-    sendJoin: jest.fn(),
-    sendOffer: jest.fn(),
-    sendIceCandidate: jest.fn(),
-    sendLeave: jest.fn(),
-    reconnect: jest.fn(),
-    close: jest.fn(),
-  }),
+  useSignaling: (config: any) => {
+    // Store the config so tests can invoke callbacks directly
+    signalingConfig = {
+      onJoined: config.onJoined,
+      onAnswer: config.onAnswer,
+      onIceCandidate: config.onIceCandidate,
+      onPeerLeft: config.onPeerLeft,
+      onRoomClosed: config.onRoomClosed,
+      onError: config.onError,
+    };
+    return mockSignaling;
+  },
 }));
 
 jest.mock('../../src/hooks/useReconnection', () => ({
-  useReconnection: () => ({
-    state: 'connected',
-    attempt: 0,
-    trigger: jest.fn(),
-    cancel: jest.fn(),
-    reset: jest.fn(),
-  }),
+  useReconnection: (config: any) => {
+    reconnectionConfig = config;
+    return mockReconnectionReturn;
+  },
 }));
 
 jest.mock('../../src/hooks/useAudioLevel', () => ({
@@ -82,6 +123,11 @@ const defaultProps = {
 
 describe('ConversationScreen', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
+    mockReconnectionReturn.state = 'connected';
+    mockReconnectionReturn.trigger.mockClear();
+    reconnectionConfig = null;
+    signalingConfig = {};
     act(() => {
       useSessionStore.getState().connect(
         'room-1',
@@ -132,5 +178,71 @@ describe('ConversationScreen', () => {
       }
     });
     expect(found).toBe(true);
+  });
+
+  // ========== NEW TESTS FOR COVERAGE GAPS ==========
+
+  it('shows reconnecting state in ConnectionStatus', () => {
+    const { getByText } = render(<ConversationScreen {...defaultProps} />);
+
+    // After mount, connectionState is 'connecting'. Override to 'reconnecting'.
+    act(() => {
+      useSessionStore.getState().setConnectionState('reconnecting');
+    });
+
+    expect(getByText('Reconectando...')).toBeTruthy();
+  });
+
+  it('shows failed state in ConnectionStatus', () => {
+    const { getByText } = render(<ConversationScreen {...defaultProps} />);
+
+    // Override to 'failed'
+    act(() => {
+      useSessionStore.getState().setConnectionState('failed');
+    });
+
+    expect(getByText('Conexión perdida')).toBeTruthy();
+  });
+
+  it('handleEndCall sends leave and closes connections on confirm', () => {
+    const { getByText } = render(<ConversationScreen {...defaultProps} />);
+
+    // Press "Finalizar" to open confirmation modal
+    fireEvent.press(getByText('Finalizar'));
+
+    // Confirm in the dialog
+    fireEvent.press(getByText('Confirmar'));
+
+    // Verify all cleanup callbacks were called
+    expect(mockSignaling.sendLeave).toHaveBeenCalledWith('sess-1');
+    expect(mockSignaling.close).toHaveBeenCalled();
+    expect(mockWebRTC.close).toHaveBeenCalled();
+  });
+
+  it('triggers reconnection onReconnect when useReconnection trigger fires', async () => {
+    jest.useFakeTimers();
+    render(<ConversationScreen {...defaultProps} />);
+
+    // After mount, signaling is connected. Make it disconnected to trigger
+    // the useEffect on line 148-153 which calls reconnection.trigger().
+    mockSignaling.isConnected = false;
+
+    // Force a re-render by updating a store value — this causes the component
+    // to re-evaluate the effect dependency `signaling.isConnected`.
+    act(() => {
+      useSessionStore.getState().setConnectionState('connected');
+    });
+
+    // Advance timers to let the onReconnect callback execute
+    await act(async () => {
+      jest.runAllTimers();
+    });
+
+    // The onReconnect callback calls signaling.reconnect() and creates an offer
+    expect(mockSignaling.reconnect).toHaveBeenCalled();
+    expect(mockWebRTC.createOffer).toHaveBeenCalledWith({ iceRestart: true });
+    expect(mockSignaling.sendOffer).toHaveBeenCalled();
+
+    jest.useRealTimers();
   });
 });

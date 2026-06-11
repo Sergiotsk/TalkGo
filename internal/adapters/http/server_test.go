@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	httpserver "github.com/Sergiotsk/TalkGo/internal/adapters/http"
 	"github.com/Sergiotsk/TalkGo/internal/domain/room"
@@ -309,5 +310,133 @@ func TestCreateRoomHandler_410_RoomClosed(t *testing.T) {
 
 	if w.Code != http.StatusGone {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusGone)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// POST /rooms — 500 internal server error (unexpected error)
+// ---------------------------------------------------------------------------
+
+func TestCreateRoomHandler_500_InternalError(t *testing.T) {
+	mgr := &mockRoomManager{
+		createRoomFn: func(_ context.Context, _, _ string) (driving.CreateRoomResult, error) {
+			return driving.CreateRoomResult{}, fmt.Errorf("unexpected database error")
+		},
+	}
+	srv := httpserver.NewServer(httpserver.DefaultConfig(), mgr, nil)
+
+	body := bytes.NewBufferString(`{"source_lang":"es","target_lang":"en"}`)
+	req := httptest.NewRequest(http.MethodPost, "/rooms", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /rooms/{id} — 500 internal server error (unexpected error)
+// ---------------------------------------------------------------------------
+
+func TestDeleteRoomHandler_500_InternalError(t *testing.T) {
+	mgr := &mockRoomManager{
+		deleteRoomFn: func(_ context.Context, _ string) error {
+			return fmt.Errorf("unexpected database error")
+		},
+	}
+	srv := httpserver.NewServer(httpserver.DefaultConfig(), mgr, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/rooms/room-123", http.NoBody)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET /rooms/code/{code} — 500 internal server error (unexpected error)
+// ---------------------------------------------------------------------------
+
+func TestGetRoomByShortCode_500_InternalError(t *testing.T) {
+	mgr := &mockRoomManager{
+		findByShortCodeFn: func(_ context.Context, _ string) (*room.Room, error) {
+			return nil, fmt.Errorf("unexpected database error")
+		},
+	}
+	srv := httpserver.NewServer(httpserver.DefaultConfig(), mgr, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/rooms/code/SHORT", http.NoBody)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET /ws/{roomID} — RoomExists returns generic error → 500
+// ---------------------------------------------------------------------------
+
+func TestWSHandler_RoomExistsError(t *testing.T) {
+	mgr := &mockRoomManager{
+		roomExistsFn: func(_ context.Context, _ string) error {
+			return fmt.Errorf("some unexpected db error")
+		},
+	}
+	srv := httpserver.NewServer(httpserver.DefaultConfig(), mgr, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/ws/room-123", http.NoBody)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET /ws/{roomID} — hub is nil → 500
+// ---------------------------------------------------------------------------
+
+func TestWSHandler_NilHub(t *testing.T) {
+	srv := httpserver.NewServer(httpserver.DefaultConfig(), &mockRoomManager{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/ws/room-123", http.NoBody)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ListenAndServe — signal-based shutdown
+// ---------------------------------------------------------------------------
+
+func TestListenAndServe_StartsListening(t *testing.T) {
+	cfg := httpserver.DefaultConfig()
+	cfg.Addr = "127.0.0.1:0"
+
+	srv := httpserver.NewServer(cfg, &mockRoomManager{}, nil)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ListenAndServe(context.Background())
+	}()
+
+	// If the server fails to start, errCh receives immediately.
+	// Otherwise, ListenAndServe blocks waiting for OS signal.
+	select {
+	case err := <-errCh:
+		t.Fatalf("server unexpectedly failed to start: %v", err)
+	case <-time.After(200 * time.Millisecond):
+		// Server started successfully — the goroutine is now
+		// blocked inside ListenAndServe waiting for SIGINT/SIGTERM.
 	}
 }

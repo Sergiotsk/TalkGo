@@ -124,7 +124,7 @@ func (s *Server) createRoomHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, room.ErrRoomFull) {
-			writeError(w, http.StatusConflict, "Esta sala ya tiene 2 participantes")
+			writeError(w, http.StatusConflict, "Esta sala ya tiene 2 participants")
 			return
 		}
 		if errors.Is(err, room.ErrRoomClosed) {
