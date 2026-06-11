@@ -6,24 +6,42 @@ import { useWebRTC } from '../../src/hooks/useWebRTC';
 // react-native-webrtc is mocked via __mocks__/react-native-webrtc.ts
 
 describe('useWebRTC', () => {
-  it('creates RTCPeerConnection on mount', () => {
+  it('creates RTCPeerConnection on mount', async () => {
     const { result } = renderHook(() => useWebRTC());
+    // Flush async getUserMedia promise that triggers setLocalStream
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(result.current).toBeDefined();
   });
 
-  it('starts with null localStream and remoteStream', () => {
+  it('gets localStream from getUserMedia on mount', async () => {
     const { result } = renderHook(() => useWebRTC());
-    expect(result.current.localStream).toBeNull();
+    // Flush pending getUserMedia promise that triggers setLocalStream
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // The mock getUserMedia resolves immediately with a mock stream
+    expect(result.current.localStream).not.toBeNull();
+    expect(result.current.localStream?.id).toBe('mock-stream-id');
     expect(result.current.remoteStream).toBeNull();
   });
 
-  it('starts with new iceConnectionState', () => {
+  it('starts with new iceConnectionState', async () => {
     const { result } = renderHook(() => useWebRTC());
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(result.current.iceConnectionState).toBe('new');
   });
 
   it('createOffer returns an SDP string', async () => {
     const { result } = renderHook(() => useWebRTC());
+
+    // Flush pending getUserMedia promise first
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     let offer: { sdp?: string } | undefined;
     await act(async () => {
@@ -36,6 +54,10 @@ describe('useWebRTC', () => {
 
   it('createOffer with iceRestart option passes through', async () => {
     const { result } = renderHook(() => useWebRTC());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     let offer: { sdp?: string } | undefined;
     await act(async () => {
@@ -50,6 +72,10 @@ describe('useWebRTC', () => {
     const { result } = renderHook(() => useWebRTC());
 
     await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
       await expect(
         result.current.setRemoteAnswer('mock-sdp-answer')
       ).resolves.toBeUndefined();
@@ -58,6 +84,10 @@ describe('useWebRTC', () => {
 
   it('addIceCandidate does not throw', async () => {
     const { result } = renderHook(() => useWebRTC());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     await act(async () => {
       await expect(
@@ -74,8 +104,12 @@ describe('useWebRTC', () => {
     });
   });
 
-  it('unmount cleans up resources', () => {
+  it('unmount cleans up resources', async () => {
     const { unmount } = renderHook(() => useWebRTC());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(() => unmount()).not.toThrow();
   });

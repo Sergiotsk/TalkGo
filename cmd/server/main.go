@@ -17,6 +17,10 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
@@ -57,7 +61,7 @@ func main() {
 	svc, err := roomsvc.NewService(cfg, repo, peer, tr, codec, hub)
 	if err != nil {
 		slog.Error("creating service", slog.Any("err", err))
-		os.Exit(1)
+		return 1
 	}
 
 	// Complete the circular wire: give hub its SignalingHandler.
@@ -75,6 +79,8 @@ func main() {
 	slog.Info("TalkGo starting")
 	if err := srv.ListenAndServe(ctx); err != nil {
 		slog.Error("server error", slog.Any("err", err))
-		os.Exit(1)
+		return 1
 	}
+
+	return 0
 }
