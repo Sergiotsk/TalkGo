@@ -2,8 +2,12 @@ package room
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"sync"
 	"time"
+
+	crand "crypto/rand"
 )
 
 var (
@@ -17,16 +21,24 @@ var (
 	ErrAlreadyInRoom = errors.New("user is already in this room")
 	// ErrNotInRoom is returned when a user tries to leave a room they are not in.
 	ErrNotInRoom = errors.New("user is not in this room")
+	// ErrShortCodeExhausted is returned when short code generation exceeds its retry limit.
+	ErrShortCodeExhausted = errors.New("room: short code generation exhausted retries")
 )
 
-const defaultCapacity = 2
+const (
+	defaultCapacity   = 2
+	shortCodeLen      = 6
+	shortCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+)
 
 // Room represents an active translation room between two languages.
 type Room struct {
 	ID           string
 	SourceLang   string
 	TargetLang   string
+	ShortCode    string
 	CreatedAt    time.Time
+	LastActivity time.Time
 	Active       bool
 	Participants map[string]struct{}
 	Capacity     int
@@ -96,4 +108,31 @@ func (r *Room) Close() {
 	defer r.mu.Unlock()
 	r.Active = false
 	r.Participants = make(map[string]struct{})
+}
+
+// TouchActivity updates LastActivity to the current time.
+// Call this on any significant room event (join, leave, message).
+func (r *Room) TouchActivity() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.LastActivity = time.Now()
+}
+
+// GenerateShortCode generates a cryptographically random 6-character short code
+// using the unambiguous alphabet ABCDEFGHJKLMNPQRSTUVWXYZ23456789 (no 0/O/1/I).
+// Pass nil to use crypto/rand; pass a custom io.Reader only for deterministic tests.
+// Returns ErrShortCodeExhausted if the reader fails.
+func GenerateShortCode(r io.Reader) (string, error) {
+	if r == nil {
+		r = crand.Reader
+	}
+	b := make([]byte, shortCodeLen)
+	if _, err := io.ReadFull(r, b); err != nil {
+		return "", fmt.Errorf("room.GenerateShortCode: %w", err)
+	}
+	result := make([]byte, shortCodeLen)
+	for i, v := range b {
+		result[i] = shortCodeAlphabet[int(v)%len(shortCodeAlphabet)]
+	}
+	return string(result), nil
 }

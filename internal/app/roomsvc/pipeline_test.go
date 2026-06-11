@@ -20,7 +20,13 @@ import (
 
 func newTestService(t *testing.T, repo driven.RoomRepository, peer driven.WebRTCPeer, translator driven.Translator, codec driven.AudioCodec, notifier driven.EventNotifier) *roomsvc.Service {
 	t.Helper()
-	svc, err := roomsvc.NewService(repo, peer, translator, codec, notifier)
+	cfg := roomsvc.ServiceConfig{
+		GracePeriod:         1 * time.Millisecond,
+		RoomTTL:             10 * time.Minute,
+		SweepInterval:       1 * time.Hour,
+		MaxShortCodeRetries: 5,
+	}
+	svc, err := roomsvc.NewService(cfg, repo, peer, translator, codec, notifier)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

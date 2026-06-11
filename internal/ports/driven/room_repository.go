@@ -2,6 +2,7 @@ package driven
 
 import (
 	"context"
+	"time"
 
 	"github.com/Sergiotsk/TalkGo/internal/domain/room"
 )
@@ -22,4 +23,16 @@ type RoomRepository interface {
 
 	// ListActive returns all rooms where Active == true.
 	ListActive(ctx context.Context) ([]*room.Room, error)
+
+	// FindByShortCode retrieves a room by its short code (case-insensitive, normalized to uppercase).
+	// Returns ErrRoomNotFound (from driving package) if not found.
+	FindByShortCode(ctx context.Context, code string) (*room.Room, error)
+
+	// UpdateLastActivity refreshes the LastActivity timestamp for the given room.
+	// Returns ErrRoomNotFound (from driving package) if the room does not exist.
+	UpdateLastActivity(ctx context.Context, roomID string) error
+
+	// ListExpired returns all rooms whose LastActivity is before the given time.
+	// Used by the expiration sweep goroutine.
+	ListExpired(ctx context.Context, before time.Time) ([]*room.Room, error)
 }

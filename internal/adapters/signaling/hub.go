@@ -28,7 +28,8 @@ type Hub struct {
 	register       chan *Client
 	unregister     chan *Client
 	handler        driving.SignalingHandler
-	sessionClients map[string]*Client
+	sessionClients map[string]*Client   // sessionID → Client
+	roomClients    map[string][]*Client // roomID → []Client (for peer-left routing)
 	mu             sync.RWMutex
 }
 
@@ -41,6 +42,7 @@ func NewHub(handler driving.SignalingHandler) *Hub {
 		unregister:     make(chan *Client),
 		handler:        handler,
 		sessionClients: make(map[string]*Client),
+		roomClients:    make(map[string][]*Client),
 	}
 }
 
@@ -54,24 +56,99 @@ func (h *Hub) SetHandler(handler driving.SignalingHandler) {
 
 // Run processes client registration and unregistration events.
 // Must be called in its own goroutine before any clients connect.
+// Deprecated: prefer RunCtx which supports graceful shutdown via context.
 func (h *Hub) Run() {
+	h.RunCtx(context.Background())
+}
+
+// RunCtx processes client registration and unregistration events.
+// Exits when ctx is cancelled, enabling graceful shutdown.
+// Must be called in its own goroutine before any clients connect.
+func (h *Hub) RunCtx(ctx context.Context) {
 	for {
 		select {
+		case <-ctx.Done():
+			return
+
 		case c := <-h.register:
 			h.mu.Lock()
 			h.clients[c] = true
+			if c.roomID != "" {
+				h.roomClients[c.roomID] = append(h.roomClients[c.roomID], c)
+			}
 			h.mu.Unlock()
 
 		case c := <-h.unregister:
+			var sessionID string
+			var roomID string
+
 			h.mu.Lock()
 			if _, ok := h.clients[c]; ok {
 				delete(h.clients, c)
 				close(c.send)
 			}
 			if c.sessionID != "" {
+				sessionID = c.sessionID
 				delete(h.sessionClients, c.sessionID)
 			}
+			roomID = c.roomID
+			// Remove client from roomClients slice.
+			if roomID != "" {
+				peers := h.roomClients[roomID]
+				updated := peers[:0]
+				for _, p := range peers {
+					if p != c {
+						updated = append(updated, p)
+					}
+				}
+				if len(updated) == 0 {
+					delete(h.roomClients, roomID)
+				} else {
+					h.roomClients[roomID] = updated
+				}
+			}
+			// Collect peer clients in the same room (for peer-left notification).
+			var peerClients []*Client
+			if sessionID != "" && roomID != "" {
+				for _, peer := range h.roomClients[roomID] {
+					if peer != c {
+						peerClients = append(peerClients, peer)
+					}
+				}
+			}
 			h.mu.Unlock()
+
+			// Send peer-left to remaining room peers — OUTSIDE the mutex.
+			if sessionID != "" && len(peerClients) > 0 {
+				peerLeftMsg := map[string]string{
+					"type":       "peer-left",
+					"session_id": sessionID,
+				}
+				if data, err := json.Marshal(peerLeftMsg); err == nil {
+					for _, peer := range peerClients {
+						select {
+						case peer.send <- data:
+						default:
+							// peer buffer full — drop
+						}
+					}
+				}
+			}
+
+			// Call OnDisconnect on the handler — OUTSIDE the mutex (prevents deadlock
+			// if OnDisconnect triggers NotifySession which acquires the same mutex).
+			if sessionID != "" {
+				h.mu.RLock()
+				handler := h.handler
+				h.mu.RUnlock()
+				if handler != nil {
+					if err := handler.OnDisconnect(context.Background(), sessionID); err != nil {
+						slog.Error("hub: OnDisconnect",
+							slog.String("sessionID", sessionID),
+							slog.Any("err", err))
+					}
+				}
+			}
 		}
 	}
 }

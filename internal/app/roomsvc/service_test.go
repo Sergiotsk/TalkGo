@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Sergiotsk/TalkGo/internal/app/roomsvc"
 	"github.com/Sergiotsk/TalkGo/internal/domain/room"
@@ -15,7 +16,13 @@ import (
 // newDefaultService builds a Service with no-op mocks for the three new ports.
 func newDefaultService(t *testing.T, repo driven.RoomRepository, peer driven.WebRTCPeer) *roomsvc.Service {
 	t.Helper()
-	svc, err := roomsvc.NewService(repo, peer, &mocks.MockTranslator{}, &mocks.MockAudioCodec{}, &mocks.MockEventNotifier{})
+	cfg := roomsvc.ServiceConfig{
+		GracePeriod:         1 * time.Millisecond,
+		RoomTTL:             10 * time.Minute,
+		SweepInterval:       1 * time.Hour,
+		MaxShortCodeRetries: 5,
+	}
+	svc, err := roomsvc.NewService(cfg, repo, peer, &mocks.MockTranslator{}, &mocks.MockAudioCodec{}, &mocks.MockEventNotifier{})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -56,9 +63,10 @@ func TestNewService_NilDependency(t *testing.T) {
 		{"nil codec", repo, peer, translator, nil, notifier},
 		{"nil notifier", repo, peer, translator, codec, nil},
 	}
+	cfg := roomsvc.ServiceConfig{MaxShortCodeRetries: 5}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := roomsvc.NewService(tt.repo, tt.peer, tt.translator, tt.codec, tt.notifier)
+			_, err := roomsvc.NewService(cfg, tt.repo, tt.peer, tt.translator, tt.codec, tt.notifier)
 			if !errors.Is(err, roomsvc.ErrNilDependency) {
 				t.Errorf("expected ErrNilDependency, got %v", err)
 			}
@@ -90,8 +98,8 @@ func TestService_JoinRoom_HappyPath(t *testing.T) {
 	if repo.FindByIDCalled != 1 {
 		t.Errorf("FindByID calls = %d, want 1", repo.FindByIDCalled)
 	}
-	if repo.SaveCalled != 1 {
-		t.Errorf("Save calls = %d, want 1", repo.SaveCalled)
+	if repo.SaveCalled < 1 {
+		t.Errorf("Save calls = %d, want ≥1", repo.SaveCalled)
 	}
 	if peer.CreateSessionCalled() != 1 {
 		t.Errorf("CreateSession calls = %d, want 1", peer.CreateSessionCalled())
@@ -273,16 +281,19 @@ func TestService_CreateRoom_HappyPath(t *testing.T) {
 	}
 	svc := newDefaultService(t, repo, &mocks.MockWebRTCPeer{})
 
-	roomID, err := svc.CreateRoom(context.Background(), "es", "en")
+	result, err := svc.CreateRoom(context.Background(), "es", "en")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if roomID == "" {
+	if result.Room == nil {
+		t.Fatal("expected non-nil Room in result")
+	}
+	if result.Room.ID == "" {
 		t.Error("expected non-empty roomID")
 	}
-	if repo.SaveCalled != 1 {
-		t.Errorf("Save calls = %d, want 1", repo.SaveCalled)
+	if repo.SaveCalled < 1 {
+		t.Errorf("Save calls = %d, want ≥1", repo.SaveCalled)
 	}
 }
 

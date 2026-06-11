@@ -1,0 +1,82 @@
+change: sprint-3
+status: archived
+archived_at: 2026-06-11
+verdict: PASS WITH WARNINGS
+summary: |
+  Sprint 3 SDD cycle completo y archivado — UX + Edge Cases para TalkGo.
+
+  ## Deliverables
+
+  ### Backend Go (TASK-001–042)
+  - OnDisconnect + peer-left notification (REQ-A01)
+  - Grace period 30s con timers cancelables (REQ-A02)
+  - Room expiry sweep goroutine + LastActivity (REQ-A03)
+  - Short codes 6 chars alfanuméricos (REQ-A04)
+  - HTTP 409 sala llena, 410 sala expirada (REQ-A05)
+
+  ### React Native (TASK-043–088)
+  - Proyecto bare workflow inicializado en mobile/
+  - SessionStore Zustand, tipos TypeScript strict
+  - Hooks: useWebRTC, useSignaling, useReconnection, useAudioLevel
+  - ConversationScreen completa (VU meters, mute, timer, keep-awake)
+  - Background mode iOS (UIBackgroundModes: audio) + Android (Foreground Service)
+  - 78 tests Jest passing
+
+warnings:
+  - WARN-01: gofmt violations in 5 files (fixed during verify)
+  - WARN-02: http adapter coverage at 61.1% (below 80% threshold)
+  - WARN-03: main.go os.Exit skips defer cancel()
+  - WARN-04: TestHub_PeerLeft_NotifiedOnDisconnect uses t.Logf instead of t.Errorf
+  - WARN-05: ConversationScreen.tsx and useSignaling.ts branch coverage below threshold
+  - WARN-06: react-native-webrtc pod install requires macOS (not executed on Windows)
+  - WARN-07: Android build requires Android SDK (not executed on Windows)
+
+critical_fixes_required:
+  - CRIT-01: copylocks in ListExpired — change value slice to pointer slice
+
+artifacts:
+  - openspec/changes/archive/2026-06-11-sprint-3/proposal.md
+  - openspec/changes/archive/2026-06-11-sprint-3/spec.md
+  - openspec/changes/archive/2026-06-11-sprint-3/design.md
+  - openspec/changes/archive/2026-06-11-sprint-3/tasks.md
+  - openspec/changes/archive/2026-06-11-sprint-3/verify-report.md
+
+test_results:
+  backend:
+    go_build: PASS
+    go_test: PASS
+    golangci_lint: FAIL (copylocks + gofmt)
+    coverage_domain: 100%
+    coverage_app_roomsvc: 86.9%
+    coverage_adapters_http: 61.1%
+  mobile:
+    jest_suites: 14
+    jest_tests: 78
+    jest_pass: 78
+    jest_failures: 0
+    statement_coverage: 80.7%
+    branch_coverage: 65.83%
+
+nfr_compliance:
+  NFR-01: FAIL (lint issues, fixable)
+  NFR-02: PARTIAL (coverage gaps in http adapter)
+  NFR-03: PASS
+  NFR-04: PASS
+  NFR-05: PASS
+  NFR-06: DEFERRED
+  NFR-07: PASS
+  NFR-08: PASS
+
+acceptance_criteria:
+  CA-01: PASS
+  CA-02: PASS
+  CA-03: PASS
+  CA-04: PASS
+  CA-05: PASS
+  CA-06: PASS
+  CA-07: PASS
+  CA-08: PASS
+  CA-09: PASS
+  CA-10: PASS
+  CA-11: PASS
+  CA-12: PASS

@@ -63,6 +63,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /health", s.healthHandler)
 	s.mux.HandleFunc("POST /rooms", s.createRoomHandler)
 	s.mux.HandleFunc("DELETE /rooms/{id}", s.deleteRoomHandler)
+	s.mux.HandleFunc("GET /rooms/code/{code}", s.getRoomByShortCodeHandler)
 	s.mux.HandleFunc("GET /ws/{roomID}", s.wsHandler)
 }
 
@@ -116,10 +117,18 @@ func (s *Server) createRoomHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roomID, err := s.manager.CreateRoom(r.Context(), req.SourceLang, req.TargetLang)
+	result, err := s.manager.CreateRoom(r.Context(), req.SourceLang, req.TargetLang)
 	if err != nil {
 		if isLanguageError(err) {
 			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, room.ErrRoomFull) {
+			writeError(w, http.StatusConflict, "Esta sala ya tiene 2 participantes")
+			return
+		}
+		if errors.Is(err, room.ErrRoomClosed) {
+			writeError(w, http.StatusGone, "Esta sala expiró. Creá una nueva.")
 			return
 		}
 		slog.Error("createRoom", slog.Any("err", err))
@@ -127,7 +136,10 @@ func (s *Server) createRoomHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]string{"room_id": roomID})
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"room_id":    result.Room.ID,
+		"short_code": result.Room.ShortCode,
+	})
 }
 
 func (s *Server) deleteRoomHandler(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +154,36 @@ func (s *Server) deleteRoomHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// getRoomByShortCodeHandler handles GET /rooms/code/{code}.
+// Returns 200 with room info, 404 if not found, 410 if the room is closed/expired.
+func (s *Server) getRoomByShortCodeHandler(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	if code == "" {
+		writeError(w, http.StatusBadRequest, "code is required")
+		return
+	}
+
+	rm, err := s.manager.FindByShortCode(r.Context(), code)
+	if err != nil {
+		if errors.Is(err, driving.ErrRoomNotFound) {
+			writeError(w, http.StatusNotFound, "room not found")
+			return
+		}
+		if errors.Is(err, room.ErrRoomClosed) {
+			writeError(w, http.StatusGone, "Esta sala expiró. Creá una nueva.")
+			return
+		}
+		slog.Error("getRoomByShortCode", slog.Any("err", err))
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"room_id":    rm.ID,
+		"short_code": rm.ShortCode,
+	})
 }
 
 func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {

@@ -32,4 +32,10 @@ type SignalingHandler interface {
 	// HandleSignaling processes an inbound signaling message and returns the response message.
 	// Returns ErrUnknownMessageType for unrecognized message types.
 	HandleSignaling(ctx context.Context, msg SignalingMessage) (SignalingMessage, error)
+
+	// OnDisconnect is called by the Hub when a WebSocket client disconnects.
+	// sessionID identifies the session that was lost (may be empty if join never completed).
+	// Implementations should start a grace-period timer and notify peers.
+	// Returns nil if sessionID is empty or not found (no-op).
+	OnDisconnect(ctx context.Context, sessionID string) error
 }

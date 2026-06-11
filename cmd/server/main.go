@@ -4,6 +4,9 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	codecadapter "github.com/Sergiotsk/TalkGo/internal/adapters/codec"
 	httpserver "github.com/Sergiotsk/TalkGo/internal/adapters/http"
@@ -17,6 +20,18 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Graceful shutdown on SIGINT/SIGTERM.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-quit
+		slog.Info("shutdown signal received")
+		cancel()
+	}()
+
 	// Driven adapters
 	peer := webrtcadapter.NewPionPeer(webrtcadapter.DefaultConfig())
 	repo := roomsvc.NewInMemoryRoomRepository()
@@ -26,12 +41,20 @@ func main() {
 	})
 	codec := codecadapter.NewPassthroughCodec()
 
+	// Service configuration
+	cfg := roomsvc.ServiceConfig{
+		GracePeriod:         30 * time.Second,
+		RoomTTL:             10 * time.Minute,
+		SweepInterval:       60 * time.Second,
+		MaxShortCodeRetries: 5,
+	}
+
 	// Break the circular dependency: Hub needs svc as SignalingHandler,
 	// svc needs Hub as EventNotifier. Wire hub first with nil handler,
 	// then inject svc after construction.
 	hub := signaling.NewHub(nil)
 
-	svc, err := roomsvc.NewService(repo, peer, tr, codec, hub)
+	svc, err := roomsvc.NewService(cfg, repo, peer, tr, codec, hub)
 	if err != nil {
 		slog.Error("creating service", slog.Any("err", err))
 		os.Exit(1)
@@ -40,13 +63,17 @@ func main() {
 	// Complete the circular wire: give hub its SignalingHandler.
 	hub.SetHandler(svc)
 
-	go hub.Run()
+	// Start hub with context for graceful shutdown.
+	go hub.RunCtx(ctx)
+
+	// Start expiration sweep goroutine.
+	svc.StartExpirationSweep(ctx)
 
 	// HTTP server
 	srv := httpserver.NewServer(httpserver.DefaultConfig(), svc, hub)
 
 	slog.Info("TalkGo starting")
-	if err := srv.ListenAndServe(context.Background()); err != nil {
+	if err := srv.ListenAndServe(ctx); err != nil {
 		slog.Error("server error", slog.Any("err", err))
 		os.Exit(1)
 	}

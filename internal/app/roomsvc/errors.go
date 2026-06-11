@@ -11,3 +11,6 @@ var ErrLangNotSupported = errors.New("lang not supported in room")
 
 // ErrNilDependency is returned when NewService receives a nil driven port.
 var ErrNilDependency = errors.New("nil dependency")
+
+// ErrShortCodeConflict is returned internally when a generated short code already exists.
+var ErrShortCodeConflict = errors.New("short code already in use")

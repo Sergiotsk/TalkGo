@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -17,48 +18,104 @@ import (
 	"github.com/Sergiotsk/TalkGo/internal/ports/driving"
 )
 
+// ServiceConfig holds tunable parameters for the Service.
+// Use small values (1ms) in tests to keep them fast.
+type ServiceConfig struct {
+	// GracePeriod is the time a room stays alive after the last participant disconnects.
+	GracePeriod time.Duration
+	// RoomTTL is the maximum inactivity duration before a room is swept away.
+	RoomTTL time.Duration
+	// SweepInterval controls how often the expiration goroutine runs.
+	SweepInterval time.Duration
+	// MaxShortCodeRetries is the maximum number of collision retries when generating a ShortCode.
+	MaxShortCodeRetries int
+}
+
+// DefaultServiceConfig returns production-safe defaults.
+func DefaultServiceConfig() ServiceConfig {
+	return ServiceConfig{
+		GracePeriod:         30 * time.Second,
+		RoomTTL:             10 * time.Minute,
+		SweepInterval:       60 * time.Second,
+		MaxShortCodeRetries: 5,
+	}
+}
+
 // Service implements driving.RoomManager and driving.SignalingHandler.
 type Service struct {
+	cfg        ServiceConfig
 	repo       driven.RoomRepository
 	peer       driven.WebRTCPeer
 	translator driven.Translator
 	codec      driven.AudioCodec
 	notifier   driven.EventNotifier
-	sessions   map[string]*session.Session // sessionID → Session
-	lookup     map[string]string           // "roomID:userID" → sessionID
-	pipelines  map[string]*pipeline        // roomID → pipeline
-	mu         sync.RWMutex
+
+	sessions  map[string]*session.Session // sessionID → Session
+	lookup    map[string]string           // "roomID:userID" → sessionID
+	pipelines map[string]*pipeline        // roomID → pipeline
+	mu        sync.RWMutex
+
+	graceTimers   map[string]*time.Timer // sessionID → pending grace timer
+	graceTimersMu sync.Mutex
 }
 
-// NewService creates a new Service with the provided driven ports.
+// NewService creates a new Service with the provided config and driven ports.
 // Returns ErrNilDependency if any port is nil.
-func NewService(repo driven.RoomRepository, peer driven.WebRTCPeer, translator driven.Translator, codec driven.AudioCodec, notifier driven.EventNotifier) (*Service, error) {
+func NewService(cfg ServiceConfig, repo driven.RoomRepository, peer driven.WebRTCPeer, translator driven.Translator, codec driven.AudioCodec, notifier driven.EventNotifier) (*Service, error) {
 	if repo == nil || peer == nil || translator == nil || codec == nil || notifier == nil {
 		return nil, ErrNilDependency
 	}
+	if cfg.MaxShortCodeRetries <= 0 {
+		cfg.MaxShortCodeRetries = 5
+	}
 	return &Service{
-		repo:       repo,
-		peer:       peer,
-		translator: translator,
-		codec:      codec,
-		notifier:   notifier,
-		sessions:   make(map[string]*session.Session),
-		lookup:     make(map[string]string),
-		pipelines:  make(map[string]*pipeline),
+		cfg:         cfg,
+		repo:        repo,
+		peer:        peer,
+		translator:  translator,
+		codec:       codec,
+		notifier:    notifier,
+		sessions:    make(map[string]*session.Session),
+		lookup:      make(map[string]string),
+		pipelines:   make(map[string]*pipeline),
+		graceTimers: make(map[string]*time.Timer),
 	}, nil
 }
 
 // CreateRoom creates a new room with the given ISO 639-1 language codes.
-// Returns the new room ID on success.
-func (s *Service) CreateRoom(ctx context.Context, sourceLang, targetLang string) (string, error) {
+// Generates a unique ShortCode with up to cfg.MaxShortCodeRetries collision retries.
+// Returns a CreateRoomResult containing the new Room (with ID and ShortCode).
+func (s *Service) CreateRoom(ctx context.Context, sourceLang, targetLang string) (driving.CreateRoomResult, error) {
 	r, err := room.NewRoom(uuid.NewString(), sourceLang, targetLang)
 	if err != nil {
-		return "", fmt.Errorf("roomsvc.CreateRoom: %w", err)
+		return driving.CreateRoomResult{}, fmt.Errorf("roomsvc.CreateRoom: %w", err)
 	}
+
+	// Generate unique short code with collision retry.
+	for attempt := 0; attempt < s.cfg.MaxShortCodeRetries; attempt++ {
+		code, err := room.GenerateShortCode(nil)
+		if err != nil {
+			return driving.CreateRoomResult{}, fmt.Errorf("roomsvc.CreateRoom: generating short code: %w", err)
+		}
+		existing, findErr := s.repo.FindByShortCode(ctx, code)
+		if findErr != nil && !errors.Is(findErr, driving.ErrRoomNotFound) {
+			return driving.CreateRoomResult{}, fmt.Errorf("roomsvc.CreateRoom: checking short code: %w", findErr)
+		}
+		if existing == nil {
+			r.ShortCode = code
+			break
+		}
+		// Collision — try again
+	}
+
+	if r.ShortCode == "" {
+		return driving.CreateRoomResult{}, fmt.Errorf("roomsvc.CreateRoom: %w", room.ErrShortCodeExhausted)
+	}
+
 	if err := s.repo.Save(ctx, r); err != nil {
-		return "", fmt.Errorf("roomsvc.CreateRoom: saving room: %w", err)
+		return driving.CreateRoomResult{}, fmt.Errorf("roomsvc.CreateRoom: saving room: %w", err)
 	}
-	return r.ID, nil
+	return driving.CreateRoomResult{Room: r}, nil
 }
 
 // DeleteRoom closes a room and cleans up all associated sessions.
@@ -100,17 +157,9 @@ func (s *Service) DeleteRoom(ctx context.Context, roomID string) error {
 }
 
 // JoinRoom adds a user to an existing room and creates a WebRTC session.
+// If a grace timer is active for this session's room, it cancels it (reconnection path).
 // lang must be a non-empty ISO 639-1 code matching the room's SourceLang or TargetLang.
 // Returns the new session ID on success.
-// Spec invariants (in order):
-//  1. Validate lang — ErrMissingLang if empty; ErrLangNotSupported if not room language.
-//  2. Find room — ErrRoomNotFound if missing.
-//  3. room.Join — propagate domain errors.
-//  4. Create Session with lang.
-//  5. peer.CreateSession — on failure, rollback room.Leave.
-//  6. repo.Save — on failure, rollback room.Leave + peer.CloseSession.
-//  7. Store session internally.
-//  8. If room is full, launch startPipeline goroutine.
 func (s *Service) JoinRoom(ctx context.Context, roomID, userID, lang string) (string, error) {
 	if lang == "" {
 		return "", fmt.Errorf("roomsvc.JoinRoom: %w", ErrMissingLang)
@@ -125,19 +174,42 @@ func (s *Service) JoinRoom(ctx context.Context, roomID, userID, lang string) (st
 		return "", fmt.Errorf("roomsvc.JoinRoom: %w", ErrLangNotSupported)
 	}
 
-	if err := r.Join(userID); err != nil {
-		return "", fmt.Errorf("roomsvc.JoinRoom: %w", err)
+	// Check for reconnection: if user is already in room, treat as reconnect.
+	joinErr := r.Join(userID)
+	isReconnect := errors.Is(joinErr, room.ErrAlreadyInRoom)
+	if joinErr != nil && !isReconnect {
+		return "", fmt.Errorf("roomsvc.JoinRoom: %w", joinErr)
+	}
+
+	// Cancel any pending grace timer for this room BEFORE creating a new session,
+	// so the room isn't deleted while we're rejoining.
+	s.cancelGraceTimersForRoom(roomID)
+
+	// On reconnect, look up the existing session ID.
+	if isReconnect {
+		s.mu.RLock()
+		existingSessID, ok := s.lookup[roomID+":"+userID]
+		s.mu.RUnlock()
+		if ok {
+			return existingSessID, nil
+		}
+		// Session not in map — fall through to create a new one.
+		_ = r.Join(userID) // will fail again (ErrAlreadyInRoom) but we already checked; ignore
 	}
 
 	sess := session.NewSession(uuid.NewString(), roomID, userID, lang)
 
 	if err := s.peer.CreateSession(ctx, sess.ID); err != nil {
-		_ = r.Leave(userID)
+		if !isReconnect {
+			_ = r.Leave(userID)
+		}
 		return "", fmt.Errorf("roomsvc.JoinRoom: creating peer session: %w", err)
 	}
 
 	if err := s.repo.Save(ctx, r); err != nil {
-		_ = r.Leave(userID)
+		if !isReconnect {
+			_ = r.Leave(userID)
+		}
 		_ = s.peer.CloseSession(ctx, sess.ID)
 		return "", fmt.Errorf("roomsvc.JoinRoom: saving room: %w", err)
 	}
@@ -146,6 +218,10 @@ func (s *Service) JoinRoom(ctx context.Context, roomID, userID, lang string) (st
 	s.sessions[sess.ID] = sess
 	s.lookup[roomID+":"+userID] = sess.ID
 	s.mu.Unlock()
+
+	// Update LastActivity on join.
+	r.TouchActivity()
+	_ = s.repo.Save(ctx, r)
 
 	if r.IsFull() {
 		// Find the first participant's session (sessA) to launch the pipeline.
@@ -168,14 +244,28 @@ func (s *Service) JoinRoom(ctx context.Context, roomID, userID, lang string) (st
 	return sess.ID, nil
 }
 
+// cancelGraceTimersForRoom stops and removes all grace timers for sessions in the given room.
+func (s *Service) cancelGraceTimersForRoom(roomID string) {
+	s.mu.RLock()
+	var sessIDsInRoom []string
+	for _, sess := range s.sessions {
+		if sess.RoomID == roomID {
+			sessIDsInRoom = append(sessIDsInRoom, sess.ID)
+		}
+	}
+	s.mu.RUnlock()
+
+	s.graceTimersMu.Lock()
+	for _, sid := range sessIDsInRoom {
+		if t, ok := s.graceTimers[sid]; ok {
+			t.Stop()
+			delete(s.graceTimers, sid)
+		}
+	}
+	s.graceTimersMu.Unlock()
+}
+
 // LeaveRoom disconnects a user from a room and cleans up their session.
-// Spec invariants (in order):
-//  1. Lookup session by roomID+userID — ErrSessionNotFound if missing.
-//  2. session.Disconnect.
-//  3. peer.CloseSession — log error, do not abort.
-//  4. room.Leave — propagate unless ErrNotInRoom (idempotent).
-//  5. repo.Save.
-//  6. Remove session from internal maps.
 func (s *Service) LeaveRoom(ctx context.Context, roomID, userID string) error {
 	s.mu.RLock()
 	sessID, ok := s.lookup[roomID+":"+userID]
@@ -210,8 +300,6 @@ func (s *Service) LeaveRoom(ctx context.Context, roomID, userID string) error {
 	s.mu.Lock()
 	delete(s.sessions, sessID)
 	delete(s.lookup, roomID+":"+userID)
-	// Cancel the active pipeline for this room if present — the remaining
-	// participant can no longer be part of a full-room session.
 	if p, ok := s.pipelines[roomID]; ok {
 		p.cancel()
 		delete(s.pipelines, roomID)
@@ -229,6 +317,102 @@ func (s *Service) RoomExists(ctx context.Context, roomID string) error {
 		return fmt.Errorf("roomsvc.RoomExists: %w", err)
 	}
 	return nil
+}
+
+// FindByShortCode looks up a room by its 6-char short code (case-insensitive).
+func (s *Service) FindByShortCode(ctx context.Context, code string) (*room.Room, error) {
+	r, err := s.repo.FindByShortCode(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("roomsvc.FindByShortCode: %w", err)
+	}
+	return r, nil
+}
+
+// UpdateLastActivity refreshes the LastActivity timestamp for the given room.
+func (s *Service) UpdateLastActivity(ctx context.Context, roomID string) error {
+	if err := s.repo.UpdateLastActivity(ctx, roomID); err != nil {
+		return fmt.Errorf("roomsvc.UpdateLastActivity: %w", err)
+	}
+	return nil
+}
+
+// OnDisconnect is called by the Hub when a WebSocket client drops.
+// If the sessionID maps to a known session, it starts a grace timer.
+// When the timer fires, it deletes the room and notifies the remaining peer.
+// If sessionID is empty or unknown, it is a no-op.
+func (s *Service) OnDisconnect(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+
+	s.mu.RLock()
+	sess, ok := s.sessions[sessionID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil // unknown session — no-op
+	}
+
+	roomID := sess.RoomID
+
+	s.graceTimersMu.Lock()
+	// Don't start a second timer if one is already running.
+	if _, exists := s.graceTimers[sessionID]; exists {
+		s.graceTimersMu.Unlock()
+		return nil
+	}
+	t := time.AfterFunc(s.cfg.GracePeriod, func() {
+		s.graceTimersMu.Lock()
+		delete(s.graceTimers, sessionID)
+		s.graceTimersMu.Unlock()
+
+		// Delete room and notify peers.
+		if err := s.DeleteRoom(ctx, roomID); err != nil && !errors.Is(err, driving.ErrRoomNotFound) {
+			slog.Error("grace timer: deleting room",
+				slog.String("roomID", roomID),
+				slog.Any("err", err))
+		}
+		s.notifier.NotifySession(sessionID, "room-closed", map[string]string{
+			"reason": "peer-timeout",
+		})
+	})
+	s.graceTimers[sessionID] = t
+	s.graceTimersMu.Unlock()
+
+	return nil
+}
+
+// StartExpirationSweep starts a background goroutine that periodically deletes
+// rooms that have been inactive for longer than cfg.RoomTTL.
+// The goroutine exits when ctx is cancelled.
+func (s *Service) StartExpirationSweep(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(s.cfg.SweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.sweepExpiredRooms(ctx)
+			}
+		}
+	}()
+}
+
+func (s *Service) sweepExpiredRooms(ctx context.Context) {
+	cutoff := time.Now().Add(-s.cfg.RoomTTL)
+	expired, err := s.repo.ListExpired(ctx, cutoff)
+	if err != nil {
+		slog.Error("expiration sweep: listing expired rooms", slog.Any("err", err))
+		return
+	}
+	for _, r := range expired {
+		if err := s.DeleteRoom(ctx, r.ID); err != nil && !errors.Is(err, driving.ErrRoomNotFound) {
+			slog.Error("expiration sweep: deleting room",
+				slog.String("roomID", r.ID),
+				slog.Any("err", err))
+		}
+	}
 }
 
 // HandleSignaling dispatches a typed signaling message and returns the response.

@@ -25,6 +25,8 @@ func (m *mockHandler) HandleSignaling(_ context.Context, _ driving.SignalingMess
 	return m.response, m.err
 }
 
+func (m *mockHandler) OnDisconnect(_ context.Context, _ string) error { return nil }
+
 func dialHub(t *testing.T, srv *httptest.Server) *websocket.Conn {
 	t.Helper()
 	u := "ws" + strings.TrimPrefix(srv.URL, "http")
