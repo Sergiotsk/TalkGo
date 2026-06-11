@@ -50,6 +50,22 @@ Tanto si eres humano como un agente de IA, debes seguir estas reglas a rajatabla
 
 ---
 
+## Estado del Proyecto
+
+| Sprint | Descripción | Estado |
+|--------|-------------|--------|
+| Sprint 0 | Scaffolding, arquitectura hexagonal, AI harness | ✅ Completo |
+| Sprint 1 | WebRTC Signaling & Room Management | ✅ Completo |
+| Sprint 2 | Pipeline de Traducción (OpenAI Realtime) | ✅ Completo |
+| Sprint 3 | UX y Edge Cases | ⏳ Pendiente |
+| Sprint 4 | Polish y Alpha | ⏳ Pendiente |
+
+### Deuda técnica activa
+- **DT-01**: `PassthroughCodec` → codec Opus real (libopus) — bloqueante para producción
+- **DT-02**: Reinicio por chunk en `runHalf` cuando el translator falla (CA-04 parcial)
+
+---
+
 ## Estructura del Proyecto (Monorepo)
 
 *   `cmd/server/`: Punto de entrada de la aplicación servidor backend.
