@@ -9,8 +9,12 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/Sergiotsk/TalkGo/internal/ports/driven"
 	"github.com/Sergiotsk/TalkGo/internal/ports/driving"
 )
+
+// Compile-time check: Hub must satisfy driven.EventNotifier.
+var _ driven.EventNotifier = (*Hub)(nil)
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -20,21 +24,32 @@ var upgrader = websocket.Upgrader{
 
 // Hub manages connected WebSocket clients and dispatches signaling messages.
 type Hub struct {
-	clients    map[*Client]bool
-	register   chan *Client
-	unregister chan *Client
-	handler    driving.SignalingHandler
-	mu         sync.RWMutex
+	clients        map[*Client]bool
+	register       chan *Client
+	unregister     chan *Client
+	handler        driving.SignalingHandler
+	sessionClients map[string]*Client
+	mu             sync.RWMutex
 }
 
 // NewHub creates a Hub that dispatches messages to the given SignalingHandler.
+// handler may be nil if SetHandler will be called before any clients connect.
 func NewHub(handler driving.SignalingHandler) *Hub {
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		handler:    handler,
+		clients:        make(map[*Client]bool),
+		register:       make(chan *Client),
+		unregister:     make(chan *Client),
+		handler:        handler,
+		sessionClients: make(map[string]*Client),
 	}
+}
+
+// SetHandler sets the SignalingHandler. Must be called before any clients connect
+// when the handler cannot be provided at construction time (e.g., circular wiring).
+func (h *Hub) SetHandler(handler driving.SignalingHandler) {
+	h.mu.Lock()
+	h.handler = handler
+	h.mu.Unlock()
 }
 
 // Run processes client registration and unregistration events.
@@ -52,6 +67,9 @@ func (h *Hub) Run() {
 			if _, ok := h.clients[c]; ok {
 				delete(h.clients, c)
 				close(c.send)
+			}
+			if c.sessionID != "" {
+				delete(h.sessionClients, c.sessionID)
 			}
 			h.mu.Unlock()
 		}
@@ -86,6 +104,8 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, roomID string) {
 
 // dispatch parses a raw JSON message and calls the SignalingHandler.
 // Errors produce an "error" response sent back to the originating client.
+// When the response type is "joined", the client is registered by sessionID
+// so that NotifySession can reach it later.
 func (h *Hub) dispatch(c *Client, data []byte) {
 	var msg driving.SignalingMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
@@ -93,10 +113,22 @@ func (h *Hub) dispatch(c *Client, data []byte) {
 		return
 	}
 
-	resp, err := h.handler.HandleSignaling(context.Background(), msg)
+	h.mu.RLock()
+	handler := h.handler
+	h.mu.RUnlock()
+
+	resp, err := handler.HandleSignaling(context.Background(), msg)
 	if err != nil {
 		h.sendError(c, err.Error())
 		return
+	}
+
+	// After a successful join, bind sessionID → client for future notifications.
+	if resp.Type == "joined" && resp.SessionID != "" {
+		h.mu.Lock()
+		c.sessionID = resp.SessionID
+		h.sessionClients[resp.SessionID] = c
+		h.mu.Unlock()
 	}
 
 	if resp.Type == "" {
@@ -115,5 +147,34 @@ func (h *Hub) sendError(c *Client, msg string) {
 	resp := driving.SignalingMessage{Type: "error", Message: msg}
 	if b, err := json.Marshal(resp); err == nil {
 		c.send <- b
+	}
+}
+
+// NotifySession sends a message to the client associated with sessionID.
+// If the session is not connected or the client send buffer is full, the message is silently dropped.
+func (h *Hub) NotifySession(sessionID, msgType string, fields map[string]string) {
+	h.mu.RLock()
+	client, ok := h.sessionClients[sessionID]
+	h.mu.RUnlock()
+	if !ok {
+		return // session not connected — drop silently
+	}
+
+	msg := make(map[string]string, len(fields)+1)
+	msg["type"] = msgType
+	for k, v := range fields {
+		msg[k] = v
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		slog.Error("NotifySession marshal", slog.Any("err", err))
+		return
+	}
+
+	select {
+	case client.send <- data:
+	default:
+		// client buffer full — drop to avoid blocking
 	}
 }

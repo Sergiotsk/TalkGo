@@ -23,6 +23,8 @@ type SignalingMessage struct {
 	SDP       string `json:"sdp,omitempty"`
 	Candidate string `json:"candidate,omitempty"`
 	Message   string `json:"message,omitempty"`
+	Lang      string `json:"lang,omitempty"`   // participant language on join
+	Reason    string `json:"reason,omitempty"` // error reason for pipeline errors
 }
 
 // SignalingHandler defines the driving port for WebRTC signaling dispatch.

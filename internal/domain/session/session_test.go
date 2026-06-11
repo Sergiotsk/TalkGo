@@ -6,7 +6,7 @@ import (
 )
 
 func TestNewSession(t *testing.T) {
-	s := NewSession("s1", "room-1", "user-1")
+	s := NewSession("s1", "room-1", "user-1", "")
 
 	if s.ID != "s1" {
 		t.Errorf("got ID %q, want %q", s.ID, "s1")
@@ -54,7 +54,7 @@ func TestSessionActivate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := NewSession("s1", "room-1", "user-1")
+			s := NewSession("s1", "room-1", "user-1", "")
 			s.State = tt.startState
 
 			err := s.Activate()
@@ -87,11 +87,47 @@ func TestSessionIsActive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := NewSession("s1", "room-1", "user-1")
+			s := NewSession("s1", "room-1", "user-1", "")
 			s.State = tt.startState
 
 			if got := s.IsActive(); got != tt.want {
 				t.Errorf("IsActive() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewSession_WithLang(t *testing.T) {
+	tests := []struct {
+		name     string
+		id       string
+		roomID   string
+		userID   string
+		lang     string
+		wantLang string
+	}{
+		{
+			name:     "stores lang correctly",
+			id:       "sess-1",
+			roomID:   "room-1",
+			userID:   "user-1",
+			lang:     "es",
+			wantLang: "es",
+		},
+		{
+			name:     "stores english lang",
+			id:       "sess-2",
+			roomID:   "room-1",
+			userID:   "user-2",
+			lang:     "en",
+			wantLang: "en",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sess := NewSession(tt.id, tt.roomID, tt.userID, tt.lang)
+			if sess.Lang != tt.wantLang {
+				t.Errorf("NewSession() Lang = %q, want %q", sess.Lang, tt.wantLang)
 			}
 		})
 	}
@@ -122,7 +158,7 @@ func TestSessionDisconnect(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := NewSession("s1", "room-1", "user-1")
+			s := NewSession("s1", "room-1", "user-1", "")
 			s.State = tt.startState
 
 			err := s.Disconnect()

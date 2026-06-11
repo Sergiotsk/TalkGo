@@ -25,16 +25,18 @@ type Session struct {
 	ID       string
 	RoomID   string
 	UserID   string
+	Lang     string
 	JoinedAt time.Time
 	State    State
 }
 
 // NewSession creates and initializes a new Session in StateConnecting.
-func NewSession(id, roomID, userID string) *Session {
+func NewSession(id, roomID, userID, lang string) *Session {
 	return &Session{
 		ID:       id,
 		RoomID:   roomID,
 		UserID:   userID,
+		Lang:     lang,
 		JoinedAt: time.Now(),
 		State:    StateConnecting,
 	}

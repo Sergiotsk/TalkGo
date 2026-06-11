@@ -1,0 +1,14 @@
+change: sprint-2
+status: archived
+archived_at: 2026-06-10
+verdict: PASS WITH WARNINGS
+warnings:
+  - WARNING-01: PassthroughCodec en lugar de OpusCodec real (CGO no disponible en Windows)
+  - WARNING-02: Umbral de backpressure no configurable via parámetro (implementado via buffer-1)
+  - WARNING-03: SC-05 half pipeline no se recupera chunk-por-chunk (half muere al primer fallo)
+  - WARNING-04: goleak no usado en tests de goroutines
+  - WARNING-05: SC-09 ICE state no testeado en estado intermedio
+artifacts:
+  - openspec/changes/archive/2026-06-10-sprint-2/spec.md
+  - openspec/changes/archive/2026-06-10-sprint-2/design.md
+  - openspec/changes/archive/2026-06-10-sprint-2/tasks.md

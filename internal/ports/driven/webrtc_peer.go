@@ -50,4 +50,13 @@ type WebRTCPeer interface {
 	// ConnectionState returns the current PeerConnectionState for the given sessionID.
 	// Returns ErrSessionNotFound (from driving package) if sessionID does not exist.
 	ConnectionState(ctx context.Context, sessionID string) (PeerConnectionState, error)
+
+	// OnAudioTrack registers a handler that receives inbound audio from the peer's media track.
+	// The handler is called with a read-only channel of Opus frames. The channel is closed
+	// when the track ends or ctx is cancelled.
+	OnAudioTrack(ctx context.Context, sessionID string, handler func(<-chan []byte)) error
+
+	// SendAudio consumes Opus frames from audio and writes them to the peer's outbound track.
+	// Blocks until audio is closed or ctx is cancelled. Returns nil on clean shutdown.
+	SendAudio(ctx context.Context, sessionID string, audio <-chan []byte) error
 }

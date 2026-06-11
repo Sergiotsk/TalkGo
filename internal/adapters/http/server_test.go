@@ -39,8 +39,8 @@ func (m *mockRoomManager) RoomExists(ctx context.Context, roomID string) error {
 	}
 	return nil
 }
-func (m *mockRoomManager) JoinRoom(_ context.Context, _, _ string) (string, error) { return "", nil }
-func (m *mockRoomManager) LeaveRoom(_ context.Context, _, _ string) error          { return nil }
+func (m *mockRoomManager) JoinRoom(_ context.Context, _, _, _ string) (string, error) { return "", nil }
+func (m *mockRoomManager) LeaveRoom(_ context.Context, _, _ string) error             { return nil }
 
 // ---------------------------------------------------------------------------
 // GET /health

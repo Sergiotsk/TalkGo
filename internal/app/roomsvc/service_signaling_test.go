@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Sergiotsk/TalkGo/internal/app/roomsvc"
 	"github.com/Sergiotsk/TalkGo/internal/domain/room"
 	"github.com/Sergiotsk/TalkGo/internal/ports/driven/mocks"
 	"github.com/Sergiotsk/TalkGo/internal/ports/driving"
@@ -22,7 +21,7 @@ func TestService_DeleteRoom_HappyPath(t *testing.T) {
 		DeleteFn:   func(_ context.Context, _ string) error { return nil },
 		SaveFn:     func(_ context.Context, _ *room.Room) error { return nil },
 	}
-	svc := roomsvc.NewService(repo, &mocks.MockWebRTCPeer{})
+	svc := newDefaultService(t, repo, &mocks.MockWebRTCPeer{})
 
 	err := svc.DeleteRoom(context.Background(), "room-1")
 
@@ -46,7 +45,7 @@ func TestService_DeleteRoom_NotFound(t *testing.T) {
 			return nil, driving.ErrRoomNotFound
 		},
 	}
-	svc := roomsvc.NewService(repo, &mocks.MockWebRTCPeer{})
+	svc := newDefaultService(t, repo, &mocks.MockWebRTCPeer{})
 
 	err := svc.DeleteRoom(context.Background(), "missing")
 
@@ -65,12 +64,13 @@ func TestService_HandleSignaling_Join(t *testing.T) {
 		FindByIDFn: func(_ context.Context, _ string) (*room.Room, error) { return r, nil },
 		SaveFn:     func(_ context.Context, _ *room.Room) error { return nil },
 	}
-	svc := roomsvc.NewService(repo, &mocks.MockWebRTCPeer{})
+	svc := newDefaultService(t, repo, &mocks.MockWebRTCPeer{})
 
 	resp, err := svc.HandleSignaling(context.Background(), driving.SignalingMessage{
 		Type:   "join",
 		RoomID: "room-1",
 		UserID: "user-1",
+		Lang:   "es",
 	})
 
 	if err != nil {
@@ -95,10 +95,10 @@ func TestService_HandleSignaling_Offer(t *testing.T) {
 			return "sdp-answer-payload", nil
 		},
 	}
-	svc := roomsvc.NewService(repo, peer)
+	svc := newDefaultService(t, repo, peer)
 
 	// First join to get a session
-	sessID, _ := svc.JoinRoom(context.Background(), "room-1", "user-1")
+	sessID, _ := svc.JoinRoom(context.Background(), "room-1", "user-1", "es")
 
 	resp, err := svc.HandleSignaling(context.Background(), driving.SignalingMessage{
 		Type:      "offer",
@@ -115,13 +115,13 @@ func TestService_HandleSignaling_Offer(t *testing.T) {
 	if resp.SDP != "sdp-answer-payload" {
 		t.Errorf("expected SDP %q, got %q", "sdp-answer-payload", resp.SDP)
 	}
-	if peer.HandleOfferCalled != 1 {
-		t.Errorf("HandleOffer calls = %d, want 1", peer.HandleOfferCalled)
+	if peer.HandleOfferCalled() != 1 {
+		t.Errorf("HandleOffer calls = %d, want 1", peer.HandleOfferCalled())
 	}
 }
 
 func TestService_HandleSignaling_ICECandidate(t *testing.T) {
-	svc := roomsvc.NewService(&mocks.MockRoomRepository{}, &mocks.MockWebRTCPeer{})
+	svc := newDefaultService(t, &mocks.MockRoomRepository{}, &mocks.MockWebRTCPeer{})
 
 	resp, err := svc.HandleSignaling(context.Background(), driving.SignalingMessage{
 		Type:      "ice-candidate",
@@ -144,9 +144,9 @@ func TestService_HandleSignaling_Leave(t *testing.T) {
 		FindByIDFn: func(_ context.Context, _ string) (*room.Room, error) { return r, nil },
 		SaveFn:     func(_ context.Context, _ *room.Room) error { return nil },
 	}
-	svc := roomsvc.NewService(repo, &mocks.MockWebRTCPeer{})
+	svc := newDefaultService(t, repo, &mocks.MockWebRTCPeer{})
 
-	sessID, _ := svc.JoinRoom(context.Background(), "room-1", "user-1")
+	sessID, _ := svc.JoinRoom(context.Background(), "room-1", "user-1", "es")
 
 	resp, err := svc.HandleSignaling(context.Background(), driving.SignalingMessage{
 		Type:      "leave",
@@ -160,7 +160,7 @@ func TestService_HandleSignaling_Leave(t *testing.T) {
 }
 
 func TestService_HandleSignaling_UnknownType(t *testing.T) {
-	svc := roomsvc.NewService(&mocks.MockRoomRepository{}, &mocks.MockWebRTCPeer{})
+	svc := newDefaultService(t, &mocks.MockRoomRepository{}, &mocks.MockWebRTCPeer{})
 
 	_, err := svc.HandleSignaling(context.Background(), driving.SignalingMessage{Type: "bogus"})
 

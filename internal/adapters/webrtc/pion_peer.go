@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	pionrtp "github.com/pion/rtp"
 	pionwebrtc "github.com/pion/webrtc/v3"
 
 	"github.com/Sergiotsk/TalkGo/internal/ports/driven"
@@ -26,13 +27,21 @@ func DefaultConfig() Config {
 	}
 }
 
+// audioHandler pairs an inbound audio handler with its cancellation context.
+type audioHandler struct {
+	fn  func(<-chan []byte)
+	ctx context.Context
+}
+
 // PionPeer implements driven.WebRTCPeer using the Pion WebRTC library.
 // Each session corresponds to one Pion PeerConnection keyed by sessionID.
 type PionPeer struct {
-	cfg   Config
-	api   *pionwebrtc.API
-	peers map[string]*pionwebrtc.PeerConnection
-	mu    sync.RWMutex
+	cfg           Config
+	api           *pionwebrtc.API
+	peers         map[string]*pionwebrtc.PeerConnection
+	localTracks   map[string]*pionwebrtc.TrackLocalStaticRTP // sessionID -> outbound track
+	audioHandlers map[string]audioHandler                    // sessionID -> registered inbound handler
+	mu            sync.RWMutex
 }
 
 // NewPionPeer creates a PionPeer with the given ICE server configuration.
@@ -41,13 +50,15 @@ func NewPionPeer(cfg Config) *PionPeer {
 	_ = m.RegisterDefaultCodecs()
 	api := pionwebrtc.NewAPI(pionwebrtc.WithMediaEngine(m))
 	return &PionPeer{
-		cfg:   cfg,
-		api:   api,
-		peers: make(map[string]*pionwebrtc.PeerConnection),
+		cfg:           cfg,
+		api:           api,
+		peers:         make(map[string]*pionwebrtc.PeerConnection),
+		localTracks:   make(map[string]*pionwebrtc.TrackLocalStaticRTP),
+		audioHandlers: make(map[string]audioHandler),
 	}
 }
 
-// CreateSession sets up a new Pion PeerConnection configured for audio receive-only.
+// CreateSession sets up a new Pion PeerConnection configured for bidirectional audio (SendRecv).
 // Returns an error if a session with sessionID already exists.
 func (p *PionPeer) CreateSession(_ context.Context, sessionID string) error {
 	p.mu.Lock()
@@ -64,25 +75,65 @@ func (p *PionPeer) CreateSession(_ context.Context, sessionID string) error {
 		return fmt.Errorf("webrtc.CreateSession: %w", err)
 	}
 
+	// Create outbound audio track for this session.
+	track, err := pionwebrtc.NewTrackLocalStaticRTP(
+		pionwebrtc.RTPCodecCapability{MimeType: pionwebrtc.MimeTypeOpus},
+		"audio",
+		fmt.Sprintf("talkgo-%s", sessionID),
+	)
+	if err != nil {
+		_ = pc.Close()
+		return fmt.Errorf("webrtc.CreateSession: create local track: %w", err)
+	}
+
+	if _, err := pc.AddTrack(track); err != nil {
+		_ = pc.Close()
+		return fmt.Errorf("webrtc.CreateSession: add track: %w", err)
+	}
+
 	_, err = pc.AddTransceiverFromKind(pionwebrtc.RTPCodecTypeAudio, pionwebrtc.RTPTransceiverInit{
-		Direction: pionwebrtc.RTPTransceiverDirectionRecvonly,
+		Direction: pionwebrtc.RTPTransceiverDirectionSendrecv,
 	})
 	if err != nil {
 		_ = pc.Close()
 		return fmt.Errorf("webrtc.CreateSession: adding audio transceiver: %w", err)
 	}
 
-	// Drain incoming RTP packets to prevent blocking.
-	pc.OnTrack(func(track *pionwebrtc.TrackRemote, _ *pionwebrtc.RTPReceiver) {
-		buf := make([]byte, 1500)
-		for {
-			if _, _, err := track.Read(buf); err != nil {
-				return
+	// OnTrack dispatches inbound audio to the registered handler for this session.
+	pc.OnTrack(func(remoteTrack *pionwebrtc.TrackRemote, _ *pionwebrtc.RTPReceiver) {
+		p.mu.RLock()
+		h, hasHandler := p.audioHandlers[sessionID]
+		p.mu.RUnlock()
+
+		audioCh := make(chan []byte, 32)
+
+		go func() {
+			defer close(audioCh)
+			buf := make([]byte, 1500)
+			for {
+				n, _, readErr := remoteTrack.Read(buf)
+				if readErr != nil {
+					return
+				}
+				if hasHandler {
+					select {
+					case audioCh <- append([]byte(nil), buf[:n]...):
+					case <-h.ctx.Done():
+						return
+					default:
+						// Drop frame if buffer full — backpressure handled upstream.
+					}
+				}
 			}
+		}()
+
+		if hasHandler {
+			h.fn(audioCh)
 		}
 	})
 
 	p.peers[sessionID] = pc
+	p.localTracks[sessionID] = track
 	return nil
 }
 
@@ -97,6 +148,9 @@ func (p *PionPeer) CloseSession(_ context.Context, sessionID string) error {
 		return nil
 	}
 	delete(p.peers, sessionID)
+	delete(p.localTracks, sessionID)
+	delete(p.audioHandlers, sessionID)
+
 	if err := pc.Close(); err != nil {
 		return fmt.Errorf("webrtc.CloseSession: %w", err)
 	}
@@ -183,6 +237,52 @@ func (p *PionPeer) ConnectionState(_ context.Context, sessionID string) (driven.
 	}
 
 	return pionStateToDriven(pc.ConnectionState()), nil
+}
+
+// OnAudioTrack registers a handler that receives inbound Opus frames from the peer's media track.
+// The handler is called with a read-only channel of RTP payloads. The channel is closed
+// when the track ends or ctx is cancelled.
+func (p *PionPeer) OnAudioTrack(ctx context.Context, sessionID string, handler func(<-chan []byte)) error {
+	p.mu.Lock()
+	p.audioHandlers[sessionID] = audioHandler{fn: handler, ctx: ctx}
+	p.mu.Unlock()
+	return nil
+}
+
+// SendAudio consumes Opus frames from audio and writes them to the peer's outbound track.
+// Blocks until audio is closed or ctx is cancelled. Returns nil on clean shutdown.
+func (p *PionPeer) SendAudio(ctx context.Context, sessionID string, audio <-chan []byte) error {
+	p.mu.RLock()
+	track, ok := p.localTracks[sessionID]
+	p.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("webrtc.SendAudio: no track for session %s", sessionID)
+	}
+
+	var timestamp uint32
+	for {
+		select {
+		case frame, open := <-audio:
+			if !open {
+				return nil
+			}
+			if err := track.WriteRTP(&pionrtp.Packet{
+				Header: pionrtp.Header{
+					Version:        2,
+					PayloadType:    111, // Opus
+					SequenceNumber: 0,   // Pion auto-increments
+					Timestamp:      timestamp,
+					SSRC:           1,
+				},
+				Payload: frame,
+			}); err != nil {
+				return fmt.Errorf("webrtc.SendAudio: write: %w", err)
+			}
+			timestamp += 960 // 20ms at 48kHz
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }
 
 func pionStateToDriven(s pionwebrtc.PeerConnectionState) driven.PeerConnectionState {

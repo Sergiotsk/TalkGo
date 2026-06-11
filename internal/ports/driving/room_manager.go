@@ -19,10 +19,12 @@ type RoomManager interface {
 	DeleteRoom(ctx context.Context, roomID string) error
 
 	// JoinRoom adds a user to an existing room and creates a new Session.
+	// lang must be a non-empty ISO 639-1 code matching the room's SourceLang or TargetLang.
 	// Returns the new session ID on success.
 	// Propagates ErrRoomFull, ErrRoomClosed, ErrAlreadyInRoom from the domain.
 	// Returns ErrRoomNotFound if the roomID does not exist.
-	JoinRoom(ctx context.Context, roomID, userID string) (string, error)
+	// Returns ErrMissingLang if lang is empty; ErrLangNotSupported if lang is not a room language.
+	JoinRoom(ctx context.Context, roomID, userID, lang string) (string, error)
 
 	// LeaveRoom disconnects a user from a room and cleans up their session.
 	// Propagates ErrNotInRoom from the domain.

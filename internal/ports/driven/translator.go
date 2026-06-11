@@ -7,5 +7,5 @@ import "context"
 type Translator interface {
 	// TranslateStream receives audio chunks and returns translated audio chunks.
 	// sourceLang and targetLang are ISO 639-1 codes.
-	TranslateStream(ctx context.Context, sourceLang, targetLang string, audioIn <-chan []byte) (<-chan []byte, error)
+	TranslateStream(ctx context.Context, audioIn <-chan []byte, sourceLang, targetLang string) (<-chan []byte, error)
 }

@@ -19,10 +19,11 @@ const (
 // Client wraps a WebSocket connection with a dedicated write pump goroutine.
 // All writes go through the send channel to avoid concurrent-write panics.
 type Client struct {
-	hub    *Hub
-	conn   *websocket.Conn
-	send   chan []byte
-	roomID string
+	hub       *Hub
+	conn      *websocket.Conn
+	send      chan []byte
+	roomID    string
+	sessionID string // set after a successful "join" — used to route notifications
 }
 
 // writePump drains the send channel and writes to the WebSocket connection.
