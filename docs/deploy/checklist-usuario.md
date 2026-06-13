@@ -7,6 +7,44 @@ El código del servidor lo implementa el equipo de desarrollo. Tu parte es la in
 
 ## Antes de arrancar el deploy
 
+### ✅ TAREA-U00 — Crear tu clave SSH (hacerlo UNA sola vez, en tu máquina local)
+
+Una clave SSH te permite conectarte al VPS de forma segura, sin contraseña.
+
+**Qué hacer (en PowerShell local):**
+
+```powershell
+# 1. Crear la clave (formato ed25519, la más moderna y segura)
+ssh-keygen -t ed25519 -C "talkgo-hetzner"
+# Presioná Enter en todo (ubicación default y sin passphrase)
+
+# 2. Ver la clave PÚBLICA (esta se sube a Hetzner)
+cat $env:USERPROFILE\.ssh\id_ed25519.pub
+```
+
+**Dónde quedan los archivos:**
+| Archivo | Ubicación | Qué es |
+|---------|-----------|--------|
+| `id_ed25519` | `C:\Users\Serjito\.ssh\id_ed25519` | Clave PRIVADA — nunca la compartas |
+| `id_ed25519.pub` | `C:\Users\Serjito\.ssh\id_ed25519.pub` | Clave PÚBLICA — esta va en Hetzner |
+
+**Cómo conectarte al VPS una vez creado:**
+```powershell
+ssh root@<IP-del-VPS>
+# Ejemplo: ssh root@45.123.45.67
+```
+
+**Deshabilitar acceso por contraseña (más seguro):**
+Una vez conectado al VPS, ejecutá:
+```bash
+sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+systemctl restart sshd
+```
+
+**Por qué:** Sin clave SSH no podés gestionar el servidor. Es el paso cero de cualquier deploy.
+
+---
+
 ### ✅ TAREA-U01 — Crear cuenta en Hetzner y provisionar el VPS
 
 **Qué hacer:**
@@ -154,7 +192,8 @@ npx expo start
 ## Resumen — Orden de ejecución
 
 ```
-1. TAREA-U01 — Crear VPS en Hetzner
+0. TAREA-U00 — Crear clave SSH en tu máquina local (hacerlo UNA sola vez)
+1. TAREA-U01 — Crear VPS en Hetzner (cargar la clave pública al crearlo)
 2. TAREA-U02 — Construir dominio sslip.io + compartir IP con el equipo
 3. TAREA-U03 — Verificar OpenAI API Key
 4. TAREA-U04 — Instalar Docker en el VPS
