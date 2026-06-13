@@ -1,4 +1,14 @@
 {
-  "name": "TalkGoMobile",
-  "displayName": "TalkGoMobile"
+  "expo": {
+    "name": "TalkGo",
+    "slug": "talkgo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "sdkVersion": "52.0.0",
+    "plugins": [
+      "expo-dev-client",
+      "react-native-webrtc"
+    ]
+  }
 }

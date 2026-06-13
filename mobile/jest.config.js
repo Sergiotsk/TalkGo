@@ -1,13 +1,10 @@
 module.exports = {
-  preset: 'react-native',
+  preset: 'jest-expo',
   moduleNameMapper: {
-    '^react-native-webrtc$': '<rootDir>/__mocks__/react-native-webrtc.ts',
-    '^react-native-keep-awake$': '<rootDir>/__mocks__/react-native-keep-awake.ts',
+    'react-native-webrtc': '<rootDir>/__mocks__/react-native-webrtc.js',
+    'expo-keep-awake': '<rootDir>/__mocks__/expo-keep-awake.ts',
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(react-native|@react-native|react-native-webrtc|react-native-keep-awake|@react-native-community|zustand)/)',
-  ],
-  testMatch: [
-    '**/__tests__/**/*.{ts,tsx}',
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|react-native-webrtc)/)',
   ],
 };
