@@ -1,0 +1,7 @@
+name: "wifi-home"
+description: "WiFi residencial típica — 20ms RTT, 1% pérdida, 50Mbps"
+bandwidth_mbps: 50
+rtt_ms: 20
+loss_pct: 1
+jitter_ms: 2
+interface: "eth0"

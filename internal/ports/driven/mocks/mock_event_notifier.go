@@ -45,3 +45,12 @@ func (m *MockEventNotifier) NotificationsFor(sessionID string) []Notification {
 	}
 	return result
 }
+
+// AllNotifications returns a thread-safe copy of all recorded notifications.
+func (m *MockEventNotifier) AllNotifications() []Notification {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]Notification, len(m.Notifications))
+	copy(result, m.Notifications)
+	return result
+}

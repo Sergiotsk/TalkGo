@@ -22,12 +22,13 @@ const (
 
 // Session represents an active WebRTC session for a participant in a room.
 type Session struct {
-	ID       string
-	RoomID   string
-	UserID   string
-	Lang     string
-	JoinedAt time.Time
-	State    State
+	ID         string
+	RoomID     string
+	UserID     string
+	Lang       string
+	JoinedAt   time.Time
+	State      State
+	ErrorCount int // incremented on pipeline errors
 }
 
 // NewSession creates and initializes a new Session in StateConnecting.

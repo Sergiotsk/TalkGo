@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt check setup clean help
+.PHONY: build test lint fmt check setup clean help docker-build docker-up docker-down docker-logs
 
 # ============================================
 # Core commands (used by CI)
@@ -19,6 +19,9 @@ lint:                           ## Run golangci-lint (enforces depguard)
 fmt:                            ## Format Go files
 	gofmt -w .
 	goimports -w .
+
+run:                            ## Run the server
+	go run ./cmd/server
 
 check: fmt lint test            ## Format, lint, and test (must pass before push)
 
@@ -46,5 +49,21 @@ cover:                          ## Generate and open HTML coverage report
 help:                           ## Show help information
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+# ============================================
+# Docker / deploy
+# ============================================
+
+docker-build:                   ## Build the talkgo Docker image
+	docker build -t talkgo .
+
+docker-up:                      ## Start all services in the background
+	docker compose up -d
+
+docker-down:                    ## Stop and remove all services
+	docker compose down
+
+docker-logs:                    ## Tail logs from all services
+	docker compose logs -f
 
 .DEFAULT_GOAL := help

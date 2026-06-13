@@ -1,0 +1,18 @@
+{$DOMAIN} {
+    # TLS via Let's Encrypt — Caddy handles ACME automatically.
+    # Set ACME_EMAIL env var to receive expiry notifications.
+    tls {$ACME_EMAIL}
+
+    # Proxy all traffic (HTTP and WebSocket) to the talkgo container.
+    reverse_proxy talkgo:8080 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Structured JSON logging.
+    log {
+        output stdout
+        format json
+    }
+}

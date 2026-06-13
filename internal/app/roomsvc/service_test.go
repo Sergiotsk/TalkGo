@@ -2,7 +2,9 @@ package roomsvc_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -305,4 +307,264 @@ func TestService_CreateRoom_InvalidLanguage(t *testing.T) {
 	if !errors.Is(err, room.ErrInvalidLanguageCode) {
 		t.Errorf("expected ErrInvalidLanguageCode, got %v", err)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// TASK-031: LeaveRoom emits session_end (voluntary)
+// ---------------------------------------------------------------------------
+
+func TestService_LeaveRoom_EmitsSessionEnd(t *testing.T) {
+	r, _ := room.NewRoom("room-1", "es", "en")
+	repo := &mocks.MockRoomRepository{
+		FindByIDFn: func(_ context.Context, _ string) (*room.Room, error) { return r, nil },
+		SaveFn:     func(_ context.Context, _ *room.Room) error { return nil },
+	}
+	svc := newDefaultService(t, repo, &mocks.MockWebRTCPeer{})
+
+	buf, restore := captureSlog(t)
+	defer restore()
+
+	ctx := context.Background()
+	_, err := svc.JoinRoom(ctx, "room-1", "user-1", "es")
+	if err != nil {
+		t.Fatalf("JoinRoom: %v", err)
+	}
+
+	if err := svc.LeaveRoom(ctx, "room-1", "user-1"); err != nil {
+		t.Fatalf("LeaveRoom: %v", err)
+	}
+
+	// Parse logged events.
+	logs := buf.String()
+	var found bool
+	dec := json.NewDecoder(strings.NewReader(logs))
+	for dec.More() {
+		var entry map[string]any
+		if err := dec.Decode(&entry); err != nil {
+			break
+		}
+		msg, _ := entry["msg"].(string)
+		if msg != "session_event" {
+			continue
+		}
+		evt, _ := entry["event"].(string)
+		if evt != "session_end" {
+			continue
+		}
+		found = true
+
+		// Validate required fields.
+		if _, ok := entry["session_id"]; !ok {
+			t.Error("session_end missing session_id")
+		}
+		if _, ok := entry["room_id"]; !ok {
+			t.Error("session_end missing room_id")
+		}
+		dur, ok := entry["duration_sec"]
+		if !ok {
+			t.Error("session_end missing duration_sec")
+		} else if _, isFloat := dur.(float64); !isFloat {
+			t.Errorf("duration_sec is not a number, got %T", dur)
+		}
+		et, _ := entry["event_type"].(string)
+		if et != "voluntary" {
+			t.Errorf("event_type = %q, want %q", et, "voluntary")
+		}
+		if sessID, _ := entry["session_id"].(string); sessID == "" {
+			t.Error("session_id should not be empty")
+		}
+	}
+	if !found {
+		t.Fatal("expected session_end event with event_type 'voluntary', got none")
+	}
+}
+
+func TestService_LeaveRoom_EmitsSessionEnd_SessionIDNotEmpty(t *testing.T) {
+	r, _ := room.NewRoom("room-1", "es", "en")
+	repo := &mocks.MockRoomRepository{
+		FindByIDFn: func(_ context.Context, _ string) (*room.Room, error) { return r, nil },
+		SaveFn:     func(_ context.Context, _ *room.Room) error { return nil },
+	}
+	svc := newDefaultService(t, repo, &mocks.MockWebRTCPeer{})
+
+	buf, restore := captureSlog(t)
+	defer restore()
+
+	ctx := context.Background()
+	expectedSessID, err := svc.JoinRoom(ctx, "room-1", "user-1", "es")
+	if err != nil {
+		t.Fatalf("JoinRoom: %v", err)
+	}
+
+	if err := svc.LeaveRoom(ctx, "room-1", "user-1"); err != nil {
+		t.Fatalf("LeaveRoom: %v", err)
+	}
+
+	logs := buf.String()
+	dec := json.NewDecoder(strings.NewReader(logs))
+	for dec.More() {
+		var entry map[string]any
+		if err := dec.Decode(&entry); err != nil {
+			break
+		}
+		msg, _ := entry["msg"].(string)
+		if msg != "session_event" {
+			continue
+		}
+		evt, _ := entry["event"].(string)
+		if evt != "session_end" {
+			continue
+		}
+		gotID, _ := entry["session_id"].(string)
+		if gotID != expectedSessID {
+			t.Errorf("session_id = %q, want %q", gotID, expectedSessID)
+		}
+		return
+	}
+	t.Fatal("expected session_end event, got none")
+}
+
+// ---------------------------------------------------------------------------
+// TASK-033: OnDisconnect emits session_end (disconnect)
+// ---------------------------------------------------------------------------
+
+func TestService_OnDisconnect_EmitsSessionEnd(t *testing.T) {
+	r, _ := room.NewRoom("room-1", "es", "en")
+	repo := &mocks.MockRoomRepository{
+		FindByIDFn: func(_ context.Context, _ string) (*room.Room, error) { return r, nil },
+		SaveFn:     func(_ context.Context, _ *room.Room) error { return nil },
+	}
+	svc := newDefaultService(t, repo, &mocks.MockWebRTCPeer{})
+
+	buf, restore := captureSlog(t)
+	defer restore()
+
+	ctx := context.Background()
+	sessID, err := svc.JoinRoom(ctx, "room-1", "user-1", "es")
+	if err != nil {
+		t.Fatalf("JoinRoom: %v", err)
+	}
+
+	if err := svc.OnDisconnect(ctx, sessID); err != nil {
+		t.Fatalf("OnDisconnect: %v", err)
+	}
+
+	logs := buf.String()
+	var found bool
+	dec := json.NewDecoder(strings.NewReader(logs))
+	for dec.More() {
+		var entry map[string]any
+		if err := dec.Decode(&entry); err != nil {
+			break
+		}
+		msg, _ := entry["msg"].(string)
+		if msg != "session_event" {
+			continue
+		}
+		evt, _ := entry["event"].(string)
+		if evt != "session_end" {
+			continue
+		}
+		et, _ := entry["event_type"].(string)
+		if et == "disconnect" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected session_end event with event_type 'disconnect', got none")
+	}
+}
+
+func TestService_OnDisconnect_EmitsSessionEnd_EmptySessionIsNoOp(t *testing.T) {
+	svc := newDefaultService(t, &mocks.MockRoomRepository{}, &mocks.MockWebRTCPeer{})
+
+	buf, restore := captureSlog(t)
+	defer restore()
+
+	if err := svc.OnDisconnect(context.Background(), ""); err != nil {
+		t.Fatalf("OnDisconnect with empty sessionID: %v", err)
+	}
+
+	if buf.Len() > 0 {
+		t.Error("expected no log output for empty sessionID")
+	}
+}
+
+func TestService_OnDisconnect_EmitsSessionEnd_UnknownSessionIsNoOp(t *testing.T) {
+	svc := newDefaultService(t, &mocks.MockRoomRepository{}, &mocks.MockWebRTCPeer{})
+
+	buf, restore := captureSlog(t)
+	defer restore()
+
+	if err := svc.OnDisconnect(context.Background(), "unknown-session"); err != nil {
+		t.Fatalf("OnDisconnect with unknown sessionID: %v", err)
+	}
+
+	if buf.Len() > 0 {
+		t.Error("expected no log output for unknown sessionID")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TASK-041: Edge case — unsupported language pair (should not panic)
+// ---------------------------------------------------------------------------
+
+func TestService_CreateRoom_InvalidLangCodes(t *testing.T) {
+	svc := newDefaultService(t, &mocks.MockRoomRepository{}, &mocks.MockWebRTCPeer{})
+
+	tests := []struct {
+		name string
+		src  string
+		tgt  string
+	}{
+		{"empty src", "", "en"},
+		{"empty tgt", "es", ""},
+		{"too long src", "espanol", "en"},
+		{"too long tgt", "es", "english"},
+		{"single char", "e", "n"},
+		{"both empty", "", ""},
+	}
+	// Note: 2-char codes like "xx" are valid per ISO 639-1 length validation.
+	// The domain intentionally accepts any 2-char code; language support is
+	// enforced at the translator/service level (ErrLangNotSupported).
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := svc.CreateRoom(context.Background(), tt.src, tt.tgt)
+			if err == nil {
+				t.Fatal("expected error for invalid language codes, got nil")
+			}
+			t.Logf("got expected error: %v", err)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TASK-042: Edge case — rapid join/leave cycles without deadlock
+// ---------------------------------------------------------------------------
+
+func TestService_RapidJoinLeaveCycles(t *testing.T) {
+	r, _ := room.NewRoom("room-rapid", "es", "en")
+	repo := &mocks.MockRoomRepository{
+		FindByIDFn: func(_ context.Context, _ string) (*room.Room, error) { return r, nil },
+		SaveFn:     func(_ context.Context, _ *room.Room) error { return nil },
+	}
+	svc := newDefaultService(t, repo, &mocks.MockWebRTCPeer{})
+
+	ctx := context.Background()
+	const cycles = 10
+
+	for i := 0; i < cycles; i++ {
+		sessID, err := svc.JoinRoom(ctx, "room-rapid", "user-1", "es")
+		if err != nil {
+			t.Fatalf("cycle %d: JoinRoom: %v", i, err)
+		}
+		if sessID == "" {
+			t.Fatalf("cycle %d: empty session ID", i)
+		}
+		if err := svc.LeaveRoom(ctx, "room-rapid", "user-1"); err != nil {
+			t.Fatalf("cycle %d: LeaveRoom: %v", i, err)
+		}
+	}
+	t.Logf("completed %d join/leave cycles without deadlock", cycles)
 }

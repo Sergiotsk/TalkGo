@@ -135,8 +135,9 @@ func (s *Service) DeleteRoom(ctx context.Context, roomID string) error {
 			if sess, ok := s.sessions[sessID]; ok {
 				_ = sess.Disconnect()
 				if err := s.peer.CloseSession(ctx, sessID); err != nil {
-					slog.Error("closing peer session on room delete",
-						slog.String("sessionID", sessID),
+					slog.Error("close_session_error",
+						"component", "service",
+						"session_id", sessID,
 						slog.Any("err", err))
 				}
 				delete(s.sessions, sessID)
@@ -279,8 +280,9 @@ func (s *Service) LeaveRoom(ctx context.Context, roomID, userID string) error {
 	_ = sess.Disconnect()
 
 	if err := s.peer.CloseSession(ctx, sessID); err != nil {
-		slog.Error("closing peer session",
-			slog.String("sessionID", sessID),
+		slog.Error("close_session_error",
+			"component", "service",
+			"session_id", sessID,
 			slog.Any("err", err))
 	}
 
@@ -305,6 +307,16 @@ func (s *Service) LeaveRoom(ctx context.Context, roomID, userID string) error {
 		delete(s.pipelines, roomID)
 	}
 	s.mu.Unlock()
+
+	slog.LogAttrs(ctx, slog.LevelInfo, "session_event",
+		slog.String("event", "session_end"),
+		slog.String("session_id", sessID),
+		slog.String("room_id", roomID),
+		slog.String("user_id", sess.UserID),
+		slog.Int64("duration_sec", int64(time.Since(sess.JoinedAt).Seconds())),
+		slog.String("event_type", "voluntary"),
+		slog.String("component", "service"),
+	)
 
 	return nil
 }
@@ -360,15 +372,39 @@ func (s *Service) OnDisconnect(ctx context.Context, sessionID string) error {
 		s.graceTimersMu.Unlock()
 		return nil
 	}
+
+	// Emit session_end(disconnect) immediately.
+	slog.LogAttrs(ctx, slog.LevelInfo, "session_event",
+		slog.String("event", "session_end"),
+		slog.String("session_id", sessionID),
+		slog.String("room_id", roomID),
+		slog.String("user_id", sess.UserID),
+		slog.Int64("duration_sec", int64(time.Since(sess.JoinedAt).Seconds())),
+		slog.String("event_type", "disconnect"),
+		slog.String("component", "service"),
+	)
+
 	t := time.AfterFunc(s.cfg.GracePeriod, func() {
 		s.graceTimersMu.Lock()
 		delete(s.graceTimers, sessionID)
 		s.graceTimersMu.Unlock()
 
+		// Emit session_end(timeout) when the grace period expires.
+		slog.LogAttrs(context.Background(), slog.LevelInfo, "session_event",
+			slog.String("event", "session_end"),
+			slog.String("session_id", sessionID),
+			slog.String("room_id", roomID),
+			slog.String("user_id", sess.UserID),
+			slog.Int64("duration_sec", int64(time.Since(sess.JoinedAt).Seconds())),
+			slog.String("event_type", "timeout"),
+			slog.String("component", "service"),
+		)
+
 		// Delete room and notify peers.
 		if err := s.DeleteRoom(ctx, roomID); err != nil && !errors.Is(err, driving.ErrRoomNotFound) {
-			slog.Error("grace timer: deleting room",
-				slog.String("roomID", roomID),
+			slog.Error("grace_timer_delete_error",
+				"component", "service",
+				"room_id", roomID,
 				slog.Any("err", err))
 		}
 		s.notifier.NotifySession(sessionID, "room-closed", map[string]string{
@@ -403,13 +439,14 @@ func (s *Service) sweepExpiredRooms(ctx context.Context) {
 	cutoff := time.Now().Add(-s.cfg.RoomTTL)
 	expired, err := s.repo.ListExpired(ctx, cutoff)
 	if err != nil {
-		slog.Error("expiration sweep: listing expired rooms", slog.Any("err", err))
+		slog.Error("sweep_list_error", "component", "service", slog.Any("err", err))
 		return
 	}
 	for _, r := range expired {
 		if err := s.DeleteRoom(ctx, r.ID); err != nil && !errors.Is(err, driving.ErrRoomNotFound) {
-			slog.Error("expiration sweep: deleting room",
-				slog.String("roomID", r.ID),
+			slog.Error("sweep_delete_error",
+				"component", "service",
+				"room_id", r.ID,
 				slog.Any("err", err))
 		}
 	}

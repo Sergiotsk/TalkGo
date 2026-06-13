@@ -23,6 +23,10 @@ type Config struct {
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
+	// Phase 7 — REQ-OPS-06: health check extension fields.
+	TurnConfigured bool
+	APIKeyPresent  bool
+	CodecMode      string
 }
 
 // DefaultConfig returns sensible defaults for local development.
@@ -38,19 +42,27 @@ func DefaultConfig() Config {
 // Server is the HTTP adapter. It wires routes to the RoomManager driving port
 // and the WebSocket signaling Hub.
 type Server struct {
-	cfg     Config
-	manager driving.RoomManager
-	hub     *signaling.Hub
-	mux     *http.ServeMux
+	cfg         Config
+	manager     driving.RoomManager
+	hub         *signaling.Hub
+	mux         *http.ServeMux
+	roomLimiter *RateLimiter
+	wsLimiter   *RateLimiter
 }
 
+// Addr returns the configured listen address.
+func (s *Server) Addr() string { return s.cfg.Addr }
+
 // NewServer creates a Server and registers all routes.
-func NewServer(cfg Config, manager driving.RoomManager, hub *signaling.Hub) *Server {
+// roomLimiter and wsLimiter may be nil (no rate limiting for that endpoint).
+func NewServer(cfg Config, manager driving.RoomManager, hub *signaling.Hub, roomLimiter *RateLimiter, wsLimiter *RateLimiter) *Server {
 	s := &Server{
-		cfg:     cfg,
-		manager: manager,
-		hub:     hub,
-		mux:     http.NewServeMux(),
+		cfg:         cfg,
+		manager:     manager,
+		hub:         hub,
+		mux:         http.NewServeMux(),
+		roomLimiter: roomLimiter,
+		wsLimiter:   wsLimiter,
 	}
 	s.registerRoutes()
 	return s
@@ -61,10 +73,25 @@ func (s *Server) Handler() http.Handler { return s.mux }
 
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /health", s.healthHandler)
-	s.mux.HandleFunc("POST /rooms", s.createRoomHandler)
 	s.mux.HandleFunc("DELETE /rooms/{id}", s.deleteRoomHandler)
 	s.mux.HandleFunc("GET /rooms/code/{code}", s.getRoomByShortCodeHandler)
-	s.mux.HandleFunc("GET /ws/{roomID}", s.wsHandler)
+	s.mux.HandleFunc("POST /feedback", s.feedbackHandler) // TASK-046
+
+	// POST /rooms — wrap with rate limiter when configured (TASK-055).
+	roomsHandler := http.HandlerFunc(s.createRoomHandler)
+	if s.roomLimiter != nil {
+		s.mux.Handle("POST /rooms", s.roomLimiter.Middleware(roomsHandler))
+	} else {
+		s.mux.Handle("POST /rooms", roomsHandler)
+	}
+
+	// GET /ws/{roomID} — wrap with rate limiter when configured (TASK-055).
+	wsHandler := http.HandlerFunc(s.wsHandler)
+	if s.wsLimiter != nil {
+		s.mux.Handle("GET /ws/{roomID}", s.wsLimiter.Middleware(wsHandler))
+	} else {
+		s.mux.Handle("GET /ws/{roomID}", wsHandler)
+	}
 }
 
 // ListenAndServe starts the server and blocks until a shutdown signal is received.
@@ -80,14 +107,14 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		slog.Info("server starting", slog.String("addr", s.cfg.Addr))
+		slog.Info("http_listening", "component", "http", "addr", s.cfg.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("server error", slog.Any("err", err))
+			slog.Error("http_listening_error", "component", "http", slog.Any("err", err))
 		}
 	}()
 
 	<-quit
-	slog.Info("shutting down server")
+	slog.Info("http_shutdown", "component", "http")
 
 	shutCtx, cancel := context.WithTimeout(ctx, s.cfg.ShutdownTimeout)
 	defer cancel()
@@ -95,7 +122,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	if err := srv.Shutdown(shutCtx); err != nil {
 		return err
 	}
-	slog.Info("server stopped")
+	slog.Info("http_stopped", "component", "http")
 	return nil
 }
 
@@ -104,7 +131,12 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 // ---------------------------------------------------------------------------
 
 func (s *Server) healthHandler(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":          "ok",
+		"turn_configured": s.cfg.TurnConfigured,
+		"api_key_present": s.cfg.APIKeyPresent,
+		"codec_mode":      s.cfg.CodecMode,
+	})
 }
 
 func (s *Server) createRoomHandler(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +163,7 @@ func (s *Server) createRoomHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusGone, "Esta sala expiró. Creá una nueva.")
 			return
 		}
-		slog.Error("createRoom", slog.Any("err", err))
+		slog.Error("create_room_error", "component", "http", slog.Any("err", err))
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -149,7 +181,7 @@ func (s *Server) deleteRoomHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "room not found")
 			return
 		}
-		slog.Error("deleteRoom", slog.Any("err", err))
+		slog.Error("delete_room_error", "component", "http", slog.Any("err", err))
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -175,7 +207,7 @@ func (s *Server) getRoomByShortCodeHandler(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusGone, "Esta sala expiró. Creá una nueva.")
 			return
 		}
-		slog.Error("getRoomByShortCode", slog.Any("err", err))
+		slog.Error("find_by_code_error", "component", "http", slog.Any("err", err))
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -197,7 +229,7 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "room not found")
 			return
 		}
-		slog.Error("wsHandler roomExists", slog.Any("err", err))
+		slog.Error("ws_handler_error", "component", "http", slog.Any("err", err))
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -206,6 +238,50 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.ServeWS(w, r, roomID)
+}
+
+// ---------------------------------------------------------------------------
+// TASK-045: feedbackRequest + feedbackHandler
+// ---------------------------------------------------------------------------
+
+// feedbackRequest is the payload for POST /feedback.
+type feedbackRequest struct {
+	SessionID string `json:"session_id"`
+	Rating    int    `json:"rating"`
+	Comment   string `json:"comment"`
+}
+
+// feedbackHandler handles POST /feedback.
+// Validates session_id and rating, truncates comment at 1000 chars, logs and
+// returns 200 + {"status":"ok"} on success or 400 + {"error":"..."} on failure.
+func (s *Server) feedbackHandler(w http.ResponseWriter, r *http.Request) {
+	var req feedbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.SessionID == "" {
+		writeError(w, http.StatusBadRequest, "session_id is required")
+		return
+	}
+	if req.Rating < 1 || req.Rating > 5 {
+		writeError(w, http.StatusBadRequest, "rating must be between 1 and 5")
+		return
+	}
+
+	comment := req.Comment
+	if len([]rune(comment)) > 1000 {
+		comment = string([]rune(comment)[:1000])
+	}
+
+	slog.Info("user_feedback",
+		slog.String("session_id", req.SessionID),
+		slog.Int("rating", req.Rating),
+		slog.String("comment", comment),
+	)
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // ---------------------------------------------------------------------------
