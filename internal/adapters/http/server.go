@@ -55,7 +55,7 @@ func (s *Server) Addr() string { return s.cfg.Addr }
 
 // NewServer creates a Server and registers all routes.
 // roomLimiter and wsLimiter may be nil (no rate limiting for that endpoint).
-func NewServer(cfg Config, manager driving.RoomManager, hub *signaling.Hub, roomLimiter *RateLimiter, wsLimiter *RateLimiter) *Server {
+func NewServer(cfg Config, manager driving.RoomManager, hub *signaling.Hub, roomLimiter, wsLimiter *RateLimiter) *Server {
 	s := &Server{
 		cfg:         cfg,
 		manager:     manager,

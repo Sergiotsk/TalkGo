@@ -42,7 +42,7 @@ func (lb *lockedBuffer) Snapshot() string {
 
 // captureLockedLogs replaces slog.Default with a handler that writes to a
 // lockedBuffer, safe for concurrent reads/writes in pipeline goroutine tests.
-func captureLockedLogs(t *testing.T, level slog.Level) (*lockedBuffer, func()) {
+func captureLockedLogs(t *testing.T, level slog.Level) (lb *lockedBuffer, restore func()) {
 	t.Helper()
 	lb := &lockedBuffer{}
 	handler := slog.NewJSONHandler(lb, &slog.HandlerOptions{Level: level})

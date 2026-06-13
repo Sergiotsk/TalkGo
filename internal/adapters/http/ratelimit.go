@@ -47,7 +47,7 @@ func NewRateLimiterWithClock(limit int, window time.Duration, nowFn func() time.
 // Returns (true, 0) when the request is permitted.
 // Returns (false, retryAfterSec) when the limit is exceeded.
 // When limit == 0 the limiter is disabled; every call returns (true, 0).
-func (rl *RateLimiter) Allow(ip string) (bool, int) {
+func (rl *RateLimiter) Allow(ip string) (allowed bool, retryAfterSec int) {
 	if rl.limit == 0 {
 		return true, 0
 	}

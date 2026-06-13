@@ -21,8 +21,6 @@ import (
 	"github.com/Sergiotsk/TalkGo/internal/ports/driven"
 )
 
-var logLevel = flag.String("log-level", "info", "log level (debug, info, warn, error)")
-
 // ---------------------------------------------------------------------------
 // TASK-069: appConfig + loadConfig
 // ---------------------------------------------------------------------------
