@@ -13,13 +13,13 @@ function App(): React.JSX.Element {
   // Sprint 3: hard-coded test props — room/user lookup will be Sprint 4 (navigation).
   // To test with a real backend:
   //   1. POST /rooms → get room_id + short_code
-  //   2. Pass room_id and ws://HOST:8080 as serverUrl
+  //   2. Pass room_id and wss://HOST as serverUrl
   return (
     <ConversationScreen
       roomId="test-room-id"
       shortCode="TEST01"
       userId="user-dev"
-      serverUrl="ws://localhost:8080"
+      serverUrl="wss://138-201-95-167.sslip.io"
       localLang="es"
       peerLang="en"
     />

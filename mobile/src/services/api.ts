@@ -1,7 +1,7 @@
 // HTTP client for the TalkGo Go backend.
 // BASE_URL can be overridden via environment variable or configuration.
 
-const BASE_URL = 'http://localhost:8080';
+const BASE_URL = 'https://138-201-95-167.sslip.io';
 
 export class ApiError extends Error {
   constructor(
