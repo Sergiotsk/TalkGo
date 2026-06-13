@@ -1,28 +1,34 @@
-/**
- * TalkGo Mobile — Entry point (App.tsx)
- *
- * Sprint 3: Mounts ConversationScreen with test props.
- * In a production app, this would be a navigation stack (React Navigation).
- * For Sprint 3, the single-screen architecture is intentional — routing is Sprint 4 scope.
- */
-
-import React from 'react';
+import React, { useEffect } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { OnboardingScreen } from './src/screens/OnboardingScreen';
+import { HomeScreen } from './src/screens/HomeScreen';
 import { ConversationScreen } from './src/screens/ConversationScreen';
+import { useUserStore } from './src/store/userStore';
+import { RootStackParamList } from './src/navigation/types';
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function App(): React.JSX.Element {
-  // Sprint 3: hard-coded test props — room/user lookup will be Sprint 4 (navigation).
-  // To test with a real backend:
-  //   1. POST /rooms → get room_id + short_code
-  //   2. Pass room_id and wss://HOST as serverUrl
+  const { name, hydrate } = useUserStore();
+
+  useEffect(() => {
+    hydrate();
+  }, [hydrate]);
+
+  const initialRoute: keyof RootStackParamList = name ? 'Home' : 'Onboarding';
+
   return (
-    <ConversationScreen
-      roomId="test-room-id"
-      shortCode="TEST01"
-      userId="user-dev"
-      serverUrl="wss://138-201-95-167.sslip.io"
-      localLang="es"
-      peerLang="en"
-    />
+    <NavigationContainer>
+      <Stack.Navigator
+        initialRouteName={initialRoute}
+        screenOptions={{ headerShown: false }}
+      >
+        <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="Conversation" component={ConversationScreen as React.ComponentType} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 

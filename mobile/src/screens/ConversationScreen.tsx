@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
 import { Platform, SafeAreaView, StyleSheet, View } from 'react-native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ConnectionStatus } from '../components/ConnectionStatus';
 import { EndCallButton } from '../components/EndCallButton';
 import { MuteButton } from '../components/MuteButton';
@@ -14,35 +15,16 @@ import { useSignaling } from '../hooks/useSignaling';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { initAudioService, startAudioService, stopAudioService } from '../services/signalingService';
 import { useSessionStore } from '../store/sessionStore';
+import { RootStackParamList } from '../navigation/types';
 
-export interface ConversationScreenProps {
-  roomId: string;
-  shortCode: string;
-  userId: string;
-  serverUrl: string;
-  localLang: string;
-  peerLang: string;
-}
+type ConversationScreenProps = NativeStackScreenProps<RootStackParamList, 'Conversation'>;
 
 /**
  * ConversationScreen — the main active call screen.
- * Composes all hooks and components for a full conversation session:
- * - WebRTC peer connection
- * - WebSocket signaling
- * - Automatic reconnection
- * - Audio level (VAD) detection
- * - Keep-awake
- * - Session timer
- * - Platform background mode (iOS AVAudioSession, Android ForegroundService)
+ * Receives roomId, shortCode, userId, serverUrl, localLang, peerLang via route.params.
  */
-export function ConversationScreen({
-  roomId,
-  shortCode,
-  userId,
-  serverUrl,
-  localLang,
-  peerLang,
-}: ConversationScreenProps): React.JSX.Element {
+export function ConversationScreen({ route }: ConversationScreenProps): React.JSX.Element {
+  const { roomId, shortCode, userId, serverUrl, localLang, peerLang } = route.params;
   // Store state
   const connectionState = useSessionStore((s) => s.connectionState);
   const sessionId = useSessionStore((s) => s.sessionId);

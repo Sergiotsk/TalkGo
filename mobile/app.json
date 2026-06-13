@@ -17,6 +17,9 @@
         "projectId": "4dfa514c-8c29-4d34-9ea0-ff48539cc2d5"
       }
     },
-    "owner": "sergiotsk"
+    "owner": "sergiotsk",
+    "android": {
+      "package": "com.sergiotsk.talkgo"
+    }
   }
 }

@@ -2,8 +2,10 @@
 
 import React from 'react';
 import { render, fireEvent, act } from '@testing-library/react-native';
+import type { RouteProp } from '@react-navigation/native';
 import { ConversationScreen } from '../../src/screens/ConversationScreen';
 import { useSessionStore } from '../../src/store/sessionStore';
+import type { RootStackParamList } from '../../src/navigation/types';
 
 // ===== Shared mock return values (per-test configurable) =====
 
@@ -112,14 +114,25 @@ jest.mock('../../src/services/signalingService', () => ({
   stopAudioService: jest.fn(),
 }));
 
-const defaultProps = {
-  roomId: 'room-1',
-  shortCode: 'ABC123',
-  userId: 'user-1',
-  serverUrl: 'ws://localhost:8080',
-  localLang: 'es',
-  peerLang: 'en',
-};
+const defaultRoute = {
+  params: {
+    roomId: 'room-1',
+    shortCode: 'ABC123',
+    userId: 'user-1',
+    serverUrl: 'ws://localhost:8080',
+    localLang: 'es',
+    peerLang: 'en',
+  },
+} as unknown as RouteProp<RootStackParamList, 'Conversation'>;
+
+const mockNavigation = {
+  navigate: jest.fn(),
+  goBack: jest.fn(),
+  replace: jest.fn(),
+  reset: jest.fn(),
+  canGoBack: jest.fn(() => false),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+} as any;
 
 describe('ConversationScreen', () => {
   beforeEach(() => {
@@ -146,25 +159,25 @@ describe('ConversationScreen', () => {
   });
 
   it('renders without crashing in connected state', () => {
-    const { getByText } = render(<ConversationScreen {...defaultProps} />);
+    const { getByText } = render(<ConversationScreen route={defaultRoute} navigation={mockNavigation} />);
     // Should show Finalizar button
     expect(getByText('Finalizar')).toBeTruthy();
   });
 
   it('shows VU meters in connected state', () => {
-    const { getByText } = render(<ConversationScreen {...defaultProps} />);
+    const { getByText } = render(<ConversationScreen route={defaultRoute} navigation={mockNavigation} />);
     expect(getByText('Vos')).toBeTruthy();
     expect(getByText('Ellos')).toBeTruthy();
   });
 
   it('shows mute button', () => {
-    const { getByTestId } = render(<ConversationScreen {...defaultProps} />);
+    const { getByTestId } = render(<ConversationScreen route={defaultRoute} navigation={mockNavigation} />);
     expect(getByTestId('mute-button-unmuted')).toBeTruthy();
   });
 
   it('shows connection status indicator', () => {
     const { getByText } = render(
-      <ConversationScreen {...defaultProps} />
+      <ConversationScreen route={defaultRoute} navigation={mockNavigation} />
     );
     // On mount, ConversationScreen sets state to 'connecting' via useEffect.
     // The ConnectionStatus should show one of the known states.
@@ -183,7 +196,7 @@ describe('ConversationScreen', () => {
   // ========== NEW TESTS FOR COVERAGE GAPS ==========
 
   it('shows reconnecting state in ConnectionStatus', () => {
-    const { getByText } = render(<ConversationScreen {...defaultProps} />);
+    const { getByText } = render(<ConversationScreen route={defaultRoute} navigation={mockNavigation} />);
 
     // After mount, connectionState is 'connecting'. Override to 'reconnecting'.
     act(() => {
@@ -194,7 +207,7 @@ describe('ConversationScreen', () => {
   });
 
   it('shows failed state in ConnectionStatus', () => {
-    const { getByText } = render(<ConversationScreen {...defaultProps} />);
+    const { getByText } = render(<ConversationScreen route={defaultRoute} navigation={mockNavigation} />);
 
     // Override to 'failed'
     act(() => {
@@ -205,7 +218,7 @@ describe('ConversationScreen', () => {
   });
 
   it('handleEndCall sends leave and closes connections on confirm', () => {
-    const { getByText } = render(<ConversationScreen {...defaultProps} />);
+    const { getByText } = render(<ConversationScreen route={defaultRoute} navigation={mockNavigation} />);
 
     // Press "Finalizar" to open confirmation modal
     fireEvent.press(getByText('Finalizar'));
@@ -221,7 +234,7 @@ describe('ConversationScreen', () => {
 
   it('triggers reconnection onReconnect when useReconnection trigger fires', async () => {
     jest.useFakeTimers();
-    render(<ConversationScreen {...defaultProps} />);
+    render(<ConversationScreen route={defaultRoute} navigation={mockNavigation} />);
 
     // After mount, signaling is connected. Make it disconnected to trigger
     // the useEffect on line 148-153 which calls reconnection.trigger().
