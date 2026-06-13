@@ -36,12 +36,18 @@ type audioHandler struct {
 // PionPeer implements driven.WebRTCPeer using the Pion WebRTC library.
 // Each session corresponds to one Pion PeerConnection keyed by sessionID.
 type PionPeer struct {
-	cfg           Config
-	api           *pionwebrtc.API
-	peers         map[string]*pionwebrtc.PeerConnection
-	localTracks   map[string]*pionwebrtc.TrackLocalStaticRTP // sessionID -> outbound track
-	audioHandlers map[string]audioHandler                    // sessionID -> registered inbound handler
-	mu            sync.RWMutex
+	cfg              Config
+	api              *pionwebrtc.API
+	peers            map[string]*pionwebrtc.PeerConnection
+	localTracks      map[string]*pionwebrtc.TrackLocalStaticRTP     // sessionID -> outbound track
+	audioHandlers    map[string]audioHandler                        // sessionID -> registered inbound handler
+	iceStateHandlers map[string]func(pionwebrtc.ICEConnectionState) // sessionID -> ICE state handler (for testing)
+	mu               sync.RWMutex
+
+	// OnICEFailed is called when the ICE connection for a session transitions to Failed.
+	// Set this field before calling CreateSession for it to take effect.
+	// If nil, ICE failures are silently ignored at this layer.
+	OnICEFailed func(sessionID string)
 }
 
 // NewPionPeer creates a PionPeer with the given ICE server configuration.
@@ -50,11 +56,12 @@ func NewPionPeer(cfg Config) *PionPeer {
 	_ = m.RegisterDefaultCodecs()
 	api := pionwebrtc.NewAPI(pionwebrtc.WithMediaEngine(m))
 	return &PionPeer{
-		cfg:           cfg,
-		api:           api,
-		peers:         make(map[string]*pionwebrtc.PeerConnection),
-		localTracks:   make(map[string]*pionwebrtc.TrackLocalStaticRTP),
-		audioHandlers: make(map[string]audioHandler),
+		cfg:              cfg,
+		api:              api,
+		peers:            make(map[string]*pionwebrtc.PeerConnection),
+		localTracks:      make(map[string]*pionwebrtc.TrackLocalStaticRTP),
+		audioHandlers:    make(map[string]audioHandler),
+		iceStateHandlers: make(map[string]func(pionwebrtc.ICEConnectionState)),
 	}
 }
 
@@ -132,6 +139,20 @@ func (p *PionPeer) CreateSession(_ context.Context, sessionID string) error {
 		}
 	})
 
+	// Register ICE connection state change handler.
+	// When ICE transitions to Failed, call OnICEFailed (if set).
+	iceHandler := func(state pionwebrtc.ICEConnectionState) {
+		if state == pionwebrtc.ICEConnectionStateFailed {
+			if p.OnICEFailed != nil {
+				p.OnICEFailed(sessionID)
+			}
+		}
+	}
+	pc.OnICEConnectionStateChange(iceHandler)
+
+	// Store handler reference for test introspection (already holding p.mu.Lock).
+	p.iceStateHandlers[sessionID] = iceHandler
+
 	p.peers[sessionID] = pc
 	p.localTracks[sessionID] = track
 	return nil
@@ -150,6 +171,7 @@ func (p *PionPeer) CloseSession(_ context.Context, sessionID string) error {
 	delete(p.peers, sessionID)
 	delete(p.localTracks, sessionID)
 	delete(p.audioHandlers, sessionID)
+	delete(p.iceStateHandlers, sessionID)
 
 	if err := pc.Close(); err != nil {
 		return fmt.Errorf("webrtc.CloseSession: %w", err)

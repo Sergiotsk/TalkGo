@@ -2,7 +2,9 @@ package roomsvc_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -222,6 +224,163 @@ func TestService_OnDisconnect_StartsGraceTimer(t *testing.T) {
 		}
 	case <-time.After(200 * time.Millisecond):
 		t.Error("grace timer did not fire and delete room within timeout")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TASK-035: Grace timer emits session_end (timeout)
+// ---------------------------------------------------------------------------
+
+func TestService_GraceTimer_EmitsSessionEndTimeout(t *testing.T) {
+	r, _ := room.NewRoom("room-1", "es", "en")
+
+	deleted := make(chan string, 1)
+	repo := &mocks.MockRoomRepository{
+		FindByIDFn: func(_ context.Context, _ string) (*room.Room, error) { return r, nil },
+		DeleteFn: func(_ context.Context, id string) error {
+			select {
+			case deleted <- id:
+			default:
+			}
+			return nil
+		},
+		SaveFn: func(_ context.Context, _ *room.Room) error { return nil },
+	}
+
+	cfg := roomsvc.ServiceConfig{
+		GracePeriod:         5 * time.Millisecond,
+		RoomTTL:             10 * time.Minute,
+		SweepInterval:       1 * time.Hour,
+		MaxShortCodeRetries: 5,
+	}
+	svc := newServiceWithConfig(t, cfg, repo, &mocks.MockWebRTCPeer{})
+
+	buf, restore := captureSlog(t)
+	defer restore()
+
+	ctx := context.Background()
+	sessID, err := svc.JoinRoom(ctx, "room-1", "user-1", "es")
+	if err != nil {
+		t.Fatalf("JoinRoom: %v", err)
+	}
+
+	// Disconnect — starts grace timer (single user, no pipeline started).
+	if err := svc.OnDisconnect(ctx, sessID); err != nil {
+		t.Fatalf("OnDisconnect: %v", err)
+	}
+
+	// Wait for grace timer to fire.
+	select {
+	case <-deleted:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("grace timer did not fire within timeout")
+	}
+
+	logs := buf.String()
+	var found bool
+	dec := json.NewDecoder(strings.NewReader(logs))
+	for dec.More() {
+		var entry map[string]any
+		if err := dec.Decode(&entry); err != nil {
+			break
+		}
+		msg, _ := entry["msg"].(string)
+		if msg != "session_event" {
+			continue
+		}
+		evt, _ := entry["event"].(string)
+		if evt != "session_end" {
+			continue
+		}
+		et, _ := entry["event_type"].(string)
+		if et == "timeout" {
+			found = true
+			if _, ok := entry["duration_sec"]; !ok {
+				t.Error("session_end(timeout) missing duration_sec")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected session_end event with event_type 'timeout', got none")
+	}
+}
+
+func TestService_GraceTimer_EmitsSessionEndTimeout_NoRejoin(t *testing.T) {
+	r, _ := room.NewRoom("room-1", "es", "en")
+
+	deleted := make(chan string, 1)
+	repo := &mocks.MockRoomRepository{
+		FindByIDFn: func(_ context.Context, _ string) (*room.Room, error) { return r, nil },
+		DeleteFn: func(_ context.Context, id string) error {
+			select {
+			case deleted <- id:
+			default:
+			}
+			return nil
+		},
+		SaveFn: func(_ context.Context, _ *room.Room) error { return nil },
+	}
+
+	cfg := roomsvc.ServiceConfig{
+		GracePeriod:         5 * time.Millisecond,
+		RoomTTL:             10 * time.Minute,
+		SweepInterval:       1 * time.Hour,
+		MaxShortCodeRetries: 5,
+	}
+	svc := newServiceWithConfig(t, cfg, repo, &mocks.MockWebRTCPeer{})
+
+	buf, restore := captureSlog(t)
+	defer restore()
+
+	ctx := context.Background()
+	sessID, err := svc.JoinRoom(ctx, "room-1", "user-1", "es")
+	if err != nil {
+		t.Fatalf("JoinRoom: %v", err)
+	}
+
+	// Disconnect — starts grace timer (single user, no pipeline started).
+	if err := svc.OnDisconnect(ctx, sessID); err != nil {
+		t.Fatalf("OnDisconnect: %v", err)
+	}
+
+	// Wait for grace timer to fire.
+	select {
+	case <-deleted:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("grace timer did not fire within timeout")
+	}
+
+	logs := buf.String()
+	// Should contain both "disconnect" and "timeout" session_end events.
+	var foundDisconnect, foundTimeout bool
+	dec := json.NewDecoder(strings.NewReader(logs))
+	for dec.More() {
+		var entry map[string]any
+		if err := dec.Decode(&entry); err != nil {
+			break
+		}
+		msg, _ := entry["msg"].(string)
+		if msg != "session_event" {
+			continue
+		}
+		evt, _ := entry["event"].(string)
+		if evt != "session_end" {
+			continue
+		}
+		et, _ := entry["event_type"].(string)
+		switch et {
+		case "disconnect":
+			foundDisconnect = true
+		case "timeout":
+			foundTimeout = true
+		}
+	}
+	if !foundDisconnect {
+		t.Error("expected session_end(disconnect), got none")
+	}
+	if !foundTimeout {
+		t.Error("expected session_end(timeout), got none")
 	}
 }
 

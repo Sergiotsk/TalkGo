@@ -143,8 +143,9 @@ func (h *Hub) RunCtx(ctx context.Context) {
 				h.mu.RUnlock()
 				if handler != nil {
 					if err := handler.OnDisconnect(context.Background(), sessionID); err != nil {
-						slog.Error("hub: OnDisconnect",
-							slog.String("sessionID", sessionID),
+						slog.Error("on_disconnect_error",
+							"component", "hub",
+							"session_id", sessionID,
 							slog.Any("err", err))
 					}
 				}
@@ -165,7 +166,7 @@ func (h *Hub) ClientCount() int {
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, roomID string) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		slog.Error("websocket upgrade", slog.Any("err", err))
+		slog.Error("ws_upgrade_failed", "component", "hub", slog.Any("err", err))
 		return
 	}
 	c := &Client{
@@ -214,7 +215,7 @@ func (h *Hub) dispatch(c *Client, data []byte) {
 
 	b, err := json.Marshal(resp)
 	if err != nil {
-		slog.Error("marshalling signaling response", slog.Any("err", err))
+		slog.Error("signal_response_marshal_error", "component", "hub", slog.Any("err", err))
 		return
 	}
 	c.send <- b
@@ -245,7 +246,7 @@ func (h *Hub) NotifySession(sessionID, msgType string, fields map[string]string)
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		slog.Error("NotifySession marshal", slog.Any("err", err))
+		slog.Error("notify_session_marshal_error", "component", "hub", slog.Any("err", err))
 		return
 	}
 

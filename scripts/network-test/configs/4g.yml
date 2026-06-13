@@ -1,0 +1,7 @@
+name: "4g"
+description: "4G móvil estándar — 100ms RTT, 5% pérdida, 10Mbps"
+bandwidth_mbps: 10
+rtt_ms: 100
+loss_pct: 5
+jitter_ms: 10
+interface: "eth0"

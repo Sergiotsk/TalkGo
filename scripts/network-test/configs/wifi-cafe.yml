@@ -1,0 +1,7 @@
+name: "wifi-cafe"
+description: "WiFi pública congestionada — 150ms RTT, 8% pérdida, 5Mbps"
+bandwidth_mbps: 5
+rtt_ms: 150
+loss_pct: 8
+jitter_ms: 20
+interface: "eth0"

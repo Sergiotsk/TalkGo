@@ -231,3 +231,41 @@ func TestInMemoryRoomRepository_ListExpired_Empty(t *testing.T) {
 		t.Errorf("expected 0 expired rooms, got %d", len(expired))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CRIT-01: ListExpired returns []*room.Room (pointer, not value)
+// ---------------------------------------------------------------------------
+
+// TestListExpired_ReturnsPointers verifies that ListExpired returns a slice of
+// *room.Room pointers, NOT []room.Room values. The Room struct contains a
+// sync.Mutex field which triggers copylock warnings if passed by value.
+// This test uses type assertion at compile time — it won't compile if the
+// return type is []room.Room (value).
+func TestListExpired_ReturnsPointers(t *testing.T) {
+	repo := roomsvc.NewInMemoryRoomRepository()
+
+	expired, err := repo.ListExpired(context.Background(), time.Now())
+	if err != nil {
+		t.Fatalf("ListExpired: %v", err)
+	}
+
+	// CRIT-01 verification: type-assert that each element is *room.Room
+	// (not room.Room value). The range variable r must be assignable to *room.Room.
+	for _, r := range expired {
+		if r == nil {
+			continue // nil pointers are fine — empty repo returns nil slice
+		}
+		// Compile-time check: r must be *room.Room (pointer), not room.Room (value).
+		// If someone changes ListExpired to return []room.Room, the field access
+		// below still works (Go promotes fields), but `r` would be a copy that
+		// includes a copy of sync.Mutex — caught by `go vet` as copylock.
+		_ = r.ID
+		_ = r.ShortCode
+	}
+
+	// Explicit type assertion at the interface level: verify that the repo
+	// method satisfies the expected signature. This is a compile-time check.
+	type listExpiredFunc func(context.Context, time.Time) ([]*room.Room, error)
+	var _ listExpiredFunc = repo.ListExpired
+	_ = expired
+}

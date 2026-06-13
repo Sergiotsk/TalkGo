@@ -1,0 +1,49 @@
+version: "3.9"
+
+networks:
+  talkgo-net:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+services:
+  # Port 8080 is internal only — Caddy proxies to it via talkgo-net
+  talkgo:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - talkgo-net
+    depends_on:
+      - coturn
+    expose:
+      - "8080"
+
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    networks:
+      - talkgo-net
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - ./deploy/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    networks:
+      - talkgo-net
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config

@@ -1,0 +1,7 @@
+name: "wan-lossy"
+description: "WAN con pérdida severa — 300ms RTT, 15% pérdida, 2Mbps"
+bandwidth_mbps: 2
+rtt_ms: 300
+loss_pct: 15
+jitter_ms: 30
+interface: "eth0"

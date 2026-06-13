@@ -44,7 +44,7 @@ func (c *Client) writePump() {
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				slog.Error("websocket write", slog.Any("err", err))
+				slog.Error("ws_write_error", "component", "hub", slog.Any("err", err))
 				return
 			}
 		case <-ticker.C:
@@ -74,7 +74,7 @@ func (c *Client) readPump() {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				slog.Error("websocket read", slog.Any("err", err))
+				slog.Error("ws_read_error", "component", "hub", slog.Any("err", err))
 			}
 			return
 		}
