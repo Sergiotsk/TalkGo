@@ -44,12 +44,12 @@ func (lb *lockedBuffer) Snapshot() string {
 // lockedBuffer, safe for concurrent reads/writes in pipeline goroutine tests.
 func captureLockedLogs(t *testing.T, level slog.Level) (lb *lockedBuffer, restore func()) {
 	t.Helper()
-	lb := &lockedBuffer{}
+	lb = &lockedBuffer{}
 	handler := slog.NewJSONHandler(lb, &slog.HandlerOptions{Level: level})
 	old := slog.Default()
 	slog.SetDefault(slog.New(handler))
-	restore := func() { slog.SetDefault(old) }
-	return lb, restore
+	restore = func() { slog.SetDefault(old) }
+	return
 }
 
 // ---------------------------------------------------------------------------
