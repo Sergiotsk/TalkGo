@@ -1,6 +1,6 @@
 # ── Stage 1: Builder ────────────────────────────────────────────────────────
 # Use bookworm (not alpine) because hraban/opus requires CGO + libopus-dev.
-FROM golang:1.23-bookworm AS builder
+FROM golang:1.24-bookworm AS builder
 
 WORKDIR /build
 
