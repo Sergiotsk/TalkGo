@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	httpserver "github.com/Sergiotsk/TalkGo/internal/adapters/http"
 	"github.com/Sergiotsk/TalkGo/internal/adapters/signaling"
 	"github.com/Sergiotsk/TalkGo/internal/domain/room"
 	"github.com/Sergiotsk/TalkGo/internal/ports/driving"
+	"github.com/gorilla/websocket"
 )
 
 // mockRoomManager is a minimal test double for driving.RoomManager.

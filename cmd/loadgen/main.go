@@ -102,7 +102,7 @@ Examples:
 	}
 
 	if *output != "" {
-		if err := os.WriteFile(*output, data, 0644); err != nil {
+		if err := os.WriteFile(*output, data, 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "error: writing report: %v\n", err)
 			return 1
 		}
@@ -119,7 +119,7 @@ Examples:
 
 // createRoom creates a room via the TalkGo HTTP API and returns the room ID.
 func createRoom(url, lang string) (string, error) {
-	body := fmt.Sprintf(`{"source_lang":"%s","target_lang":"en"}`, lang)
+	body := fmt.Sprintf(`{"source_lang":%q,"target_lang":"en"}`, lang)
 	resp, err := http.Post(url, "application/json", bytes.NewReader([]byte(body))) //nolint:noctx // short-lived
 	if err != nil {
 		return "", fmt.Errorf("POST %s: %w", url, err)

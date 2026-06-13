@@ -31,7 +31,7 @@ func TestLoadgen_AudioFrameAmplitudeRange(t *testing.T) {
 
 	for i := 0; i < len(frame); i += 2 {
 		sample := int16(binary.LittleEndian.Uint16(frame[i:]))
-		if sample < -32768 || sample > 32767 {
+		if sample < -32768 || sample > 32767 { //nolint:staticcheck // always false for int16 — documents that no clipping should occur
 			t.Errorf("sample[%d] = %d, out of range [-32768, 32767]", i/2, sample)
 		}
 	}

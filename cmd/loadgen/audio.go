@@ -7,8 +7,8 @@ import (
 
 // Audio constants.
 const (
-	SampleRate  = 24000 // Hz
-	FrameSizeMs = 20    // milliseconds per frame
+	SampleRate   = 24000                           // Hz
+	FrameSizeMs  = 20                              // milliseconds per frame
 	FrameSamples = SampleRate * FrameSizeMs / 1000 // 480 samples
 	FrameBytes   = FrameSamples * 2                // 960 bytes (16-bit mono)
 	ToneFreq     = 440.0                           // A4 frequency in Hz

@@ -27,10 +27,10 @@ type pipelineHalf struct {
 	targetSessID string
 	sourceLang   string
 	targetLang   string
-	dir          string            // "AtoB" or "BtoA"
-	tracker      *LatencyTracker   // per-half latency tracker
-	totalChunks  atomic.Int64      // chunks processed successfully
-	errorChunks  atomic.Int64      // chunks with errors
+	dir          string          // "AtoB" or "BtoA"
+	tracker      *LatencyTracker // per-half latency tracker
+	totalChunks  atomic.Int64    // chunks processed successfully
+	errorChunks  atomic.Int64    // chunks with errors
 }
 
 // drainOldest drops the oldest item from ch if it is full, then sends v.

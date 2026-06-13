@@ -65,7 +65,7 @@ func TestRateLimiter_Allow_IndependentIPs(t *testing.T) {
 
 	// Fill bucket for IP-A
 	for i := 0; i < limit+1; i++ {
-		rl.Allow("1.1.1.1") //nolint:errcheck
+		rl.Allow("1.1.1.1") //nolint:errcheck // intentional: testing rate limit behavior, not the error path
 	}
 
 	// IP-B must still be allowed
@@ -110,7 +110,7 @@ func TestRateLimiter_RetryAfter_Correct(t *testing.T) {
 
 	// Fill bucket at t=0
 	for i := 0; i < limit; i++ {
-		rl.Allow("1.2.3.4") //nolint:errcheck
+		rl.Allow("1.2.3.4") //nolint:errcheck // intentional: filling bucket to trigger denial, return values unused
 	}
 
 	// Advance clock 10s into the 60s window — 50s remain
@@ -138,9 +138,9 @@ func TestRateLimiter_Cleanup_RemovesStale(t *testing.T) {
 	rl := httpserver.NewRateLimiter(5, window)
 
 	// Seed some entries
-	rl.Allow("10.0.0.1") //nolint:errcheck
-	rl.Allow("10.0.0.2") //nolint:errcheck
-	rl.Allow("10.0.0.3") //nolint:errcheck
+	rl.Allow("10.0.0.1") //nolint:errcheck // intentional: seeding bucket entries for cleanup test
+	rl.Allow("10.0.0.2") //nolint:errcheck // intentional: seeding bucket entries for cleanup test
+	rl.Allow("10.0.0.3") //nolint:errcheck // intentional: seeding bucket entries for cleanup test
 
 	if rl.BucketCount() == 0 {
 		t.Fatal("expected buckets to be populated before cleanup")
@@ -166,7 +166,7 @@ func TestRateLimiter_Allow_WindowReset(t *testing.T) {
 
 	// Fill bucket at current time
 	for i := 0; i < limit; i++ {
-		rl.Allow("5.5.5.5") //nolint:errcheck
+		rl.Allow("5.5.5.5") //nolint:errcheck // intentional: filling bucket to verify exhaustion, return values unused
 	}
 
 	// Verify bucket is exhausted
@@ -203,7 +203,7 @@ func TestRateLimiter_Middleware_429Response(t *testing.T) {
 	handler := rl.Middleware(next)
 
 	newReq := func() *http.Request {
-		r := httptest.NewRequest(http.MethodGet, "/test", nil)
+		r := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 		r.RemoteAddr = "192.168.1.1:1234"
 		return r
 	}
@@ -229,8 +229,8 @@ func TestRateLimiter_Middleware_429Response(t *testing.T) {
 	}
 
 	var body struct {
-		Error            string `json:"error"`
-		RetryAfterSeconds int   `json:"retry_after_seconds"`
+		Error             string `json:"error"`
+		RetryAfterSeconds int    `json:"retry_after_seconds"`
 	}
 	if err := json.NewDecoder(w2.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode response body: %v", err)

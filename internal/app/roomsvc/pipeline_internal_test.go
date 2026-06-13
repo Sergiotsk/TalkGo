@@ -377,7 +377,7 @@ func TestPipeline_StopEmitsAsymmetricCounters(t *testing.T) {
 	// We override the peer to send different frame counts per session:
 	//   3 frames for sessA (first created), 2 frames for sessB (second created).
 	var (
-		mu         sync.Mutex
+		mu           sync.Mutex
 		sessA, sessB string
 	)
 	peer := &mocks.MockWebRTCPeer{
@@ -655,8 +655,8 @@ func TestPipelineHalf_CodecError_SendsErrorEvent(t *testing.T) {
 	}
 
 	var (
-		mu              sync.Mutex
-		firstSessionID  string
+		mu             sync.Mutex
+		firstSessionID string
 	)
 
 	repo := &mocks.MockRoomRepository{

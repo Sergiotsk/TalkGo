@@ -111,11 +111,12 @@ func (r *Report) computeStatus() {
 	}
 
 	// Determine status from error rate and latency.
-	if r.ErrorRatePct > 15 || r.P90RTTMs > 2500 {
+	switch {
+	case r.ErrorRatePct > 15 || r.P90RTTMs > 2500:
 		r.Status = "failed"
-	} else if r.ErrorRatePct > 5 || r.P90RTTMs > 1500 {
+	case r.ErrorRatePct > 5 || r.P90RTTMs > 1500:
 		r.Status = "degraded"
-	} else {
+	default:
 		r.Status = "ok"
 	}
 }

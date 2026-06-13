@@ -322,25 +322,5 @@ func TestOpusCodec_Encode_CancelContext_ClosesOutput(t *testing.T) {
 	}
 }
 
-// Helper: drainChannel reads all frames from ch until closed, with a timeout.
-func drainChannel(t *testing.T, ch <-chan []byte, timeout time.Duration) [][]byte {
-	t.Helper()
-	var frames [][]byte
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
-	for {
-		select {
-		case f, ok := <-ch:
-			if !ok {
-				return frames
-			}
-			frames = append(frames, f)
-		case <-deadline.C:
-			t.Fatal("drainChannel: timeout waiting for channel to close")
-			return frames
-		}
-	}
-}
-
 // Verify that bytes.Equal works for test helpers (used in passthrough_test.go).
 var _ = bytes.Equal

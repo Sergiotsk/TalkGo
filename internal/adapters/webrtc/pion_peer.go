@@ -39,9 +39,9 @@ type PionPeer struct {
 	cfg              Config
 	api              *pionwebrtc.API
 	peers            map[string]*pionwebrtc.PeerConnection
-	localTracks      map[string]*pionwebrtc.TrackLocalStaticRTP      // sessionID -> outbound track
-	audioHandlers    map[string]audioHandler                          // sessionID -> registered inbound handler
-	iceStateHandlers map[string]func(pionwebrtc.ICEConnectionState)   // sessionID -> ICE state handler (for testing)
+	localTracks      map[string]*pionwebrtc.TrackLocalStaticRTP     // sessionID -> outbound track
+	audioHandlers    map[string]audioHandler                        // sessionID -> registered inbound handler
+	iceStateHandlers map[string]func(pionwebrtc.ICEConnectionState) // sessionID -> ICE state handler (for testing)
 	mu               sync.RWMutex
 
 	// OnICEFailed is called when the ICE connection for a session transitions to Failed.
