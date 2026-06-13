@@ -7,6 +7,7 @@ WORKDIR /build
 # Install CGO dependencies.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopus-dev \
+    libopusfile-dev \
     pkg-config \
  && rm -rf /var/lib/apt/lists/*
 
