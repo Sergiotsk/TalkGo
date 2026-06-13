@@ -28,6 +28,7 @@ WORKDIR /
 # Install runtime shared libraries.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopus0 \
+    libopusfile0 \
     ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
