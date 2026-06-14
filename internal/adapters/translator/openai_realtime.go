@@ -72,10 +72,10 @@ type apiError struct {
 
 // turnDetection configures server-side VAD for the session.
 type turnDetection struct {
-	Type              string `json:"type"`
+	Type              string  `json:"type"`
 	Threshold         float64 `json:"threshold"`
-	PrefixPaddingMs   int    `json:"prefix_padding_ms"`
-	SilenceDurationMs int    `json:"silence_duration_ms"`
+	PrefixPaddingMs   int     `json:"prefix_padding_ms"`
+	SilenceDurationMs int     `json:"silence_duration_ms"`
 }
 
 // sessionUpdate is the payload for session.update messages.
