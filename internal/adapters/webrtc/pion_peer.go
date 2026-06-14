@@ -126,14 +126,16 @@ func (p *PionPeer) CreateSession(_ context.Context, sessionID string) error {
 				delete(p.rawTracks, sessionID)
 				p.mu.Unlock()
 			}()
-			buf := make([]byte, 1500)
 			for {
-				n, _, readErr := remoteTrack.Read(buf)
+				pkt, _, readErr := remoteTrack.ReadRTP()
 				if readErr != nil {
 					return
 				}
+				if len(pkt.Payload) == 0 {
+					continue
+				}
 				select {
-				case audioCh <- append([]byte(nil), buf[:n]...):
+				case audioCh <- append([]byte(nil), pkt.Payload...):
 				default:
 					// Drop frame if buffer full — backpressure handled upstream.
 				}
