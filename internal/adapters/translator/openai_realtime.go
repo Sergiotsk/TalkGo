@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultModel   = "gpt-realtime-mini-2025-10-06"
+	defaultModel   = "gpt-realtime"
 	defaultBaseURL = "wss://api.openai.com/v1/realtime"
 )
 

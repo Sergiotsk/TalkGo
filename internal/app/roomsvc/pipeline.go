@@ -208,6 +208,7 @@ func (s *Service) runHalf(ctx context.Context, p *pipeline, half *pipelineHalf) 
 	tracker.EndStage(StageTranslate)
 
 	// Forward transcripts to the target session as they arrive.
+	// If TTS is configured, also synthesize audio and send it via WebRTC.
 	targetSessID := half.targetSessID
 	p.wg.Add(1)
 	go func() {
@@ -217,6 +218,9 @@ func (s *Service) runHalf(ctx context.Context, p *pipeline, half *pipelineHalf) 
 			s.notifier.NotifySession(targetSessID, "transcript", map[string]string{
 				"text": text,
 			})
+			if s.tts != nil {
+				go s.sendTTSAudio(ctx, targetSessID, text, half.targetLang)
+			}
 		}
 	}()
 
@@ -253,6 +257,25 @@ func (s *Service) runHalf(ctx context.Context, p *pipeline, half *pipelineHalf) 
 	// All stages completed successfully.
 	half.totalChunks.Add(int64(frameCount))
 	tracker.Emit(ctx, half.dir, roomID, "ok")
+}
+
+// sendTTSAudio synthesizes text to audio using the TTS adapter, encodes it to
+// Opus, and sends it to the target peer via WebRTC. Errors are logged and
+// silently dropped — TTS failure must not interrupt the transcript flow.
+func (s *Service) sendTTSAudio(ctx context.Context, targetSessID, text, lang string) {
+	pcmCh, err := s.tts.Synthesize(ctx, text, lang)
+	if err != nil {
+		slog.Warn("tts_synthesize_error", "session", targetSessID, "err", err)
+		return
+	}
+	opusCh, err := s.codec.Encode(ctx, pcmCh)
+	if err != nil {
+		slog.Warn("tts_encode_error", "session", targetSessID, "err", err)
+		return
+	}
+	if err := s.peer.SendAudio(ctx, targetSessID, opusCh); err != nil {
+		slog.Warn("tts_send_error", "session", targetSessID, "err", err)
+	}
 }
 
 // logSessionError emits a session_error event and tracks error count.

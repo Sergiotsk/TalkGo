@@ -49,6 +49,7 @@ type Service struct {
 	translator driven.Translator
 	codec      driven.AudioCodec
 	notifier   driven.EventNotifier
+	tts        driven.TextToSpeech // optional: nil disables voice output
 
 	sessions  map[string]*session.Session // sessionID → Session
 	lookup    map[string]string           // "roomID:userID" → sessionID
@@ -80,6 +81,12 @@ func NewService(cfg ServiceConfig, repo driven.RoomRepository, peer driven.WebRT
 		pipelines:   make(map[string]*pipeline),
 		graceTimers: make(map[string]*time.Timer),
 	}, nil
+}
+
+// WithTTS sets the optional TextToSpeech dependency. When set, translated
+// transcripts are synthesized to audio and sent to the target peer via WebRTC.
+func (s *Service) WithTTS(tts driven.TextToSpeech) {
+	s.tts = tts
 }
 
 // CreateRoom creates a new room with the given ISO 639-1 language codes.
