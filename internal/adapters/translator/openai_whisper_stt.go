@@ -97,7 +97,7 @@ type sttTranscription struct {
 // a channel of final transcript strings. The channel is closed when audioIn
 // is exhausted or ctx is cancelled.
 func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang string) (<-chan string, error) {
-	url := fmt.Sprintf("%s?model=%s&intent=transcription", w.cfg.BaseURL, w.cfg.SessionModel)
+	url := fmt.Sprintf("%s?intent=transcription", w.cfg.BaseURL)
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+w.cfg.APIKey)
