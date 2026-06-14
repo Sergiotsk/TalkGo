@@ -79,8 +79,8 @@ type sttAudio struct {
 }
 
 type sttInput struct {
-	Format        sttFormat        `json:"format"`
-	Transcription sttTranscription `json:"transcription"`
+	Format        sttFormat         `json:"format"`
+	Transcription sttTranscription  `json:"transcription"`
 	TurnDetection *sttTurnDetection `json:"turn_detection,omitempty"`
 }
 
