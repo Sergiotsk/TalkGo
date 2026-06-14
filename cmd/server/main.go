@@ -190,7 +190,7 @@ func run() int {
 	repo := roomsvc.NewInMemoryRoomRepository()
 	tr := translator.NewOpenAIRealtimeTranslator(translator.OpenAIRealtimeConfig{
 		APIKey: appCfg.OpenAIAPIKey,
-		Model:  "gpt-4o-realtime-preview",
+		// Model uses default: gpt-4o-realtime-preview-2024-12-17 (GA)
 	})
 
 	// Service configuration
