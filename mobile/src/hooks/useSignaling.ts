@@ -10,6 +10,7 @@ export interface UseSignalingConfig {
   onPeerLeft: (sessionId: string) => void;
   onRoomClosed: (reason: string) => void;
   onError: (message: string) => void;
+  onTranscript?: (text: string) => void;
 }
 
 export interface UseSignalingReturn {
@@ -77,6 +78,9 @@ export function useSignaling(config: UseSignalingConfig): UseSignalingReturn {
           break;
         case 'error':
           cb.onError(msg.message ?? 'Unknown error');
+          break;
+        case 'transcript':
+          cb.onTranscript?.(msg.text ?? '');
           break;
         default:
           // Unknown message type — ignore silently (forward compatibility)

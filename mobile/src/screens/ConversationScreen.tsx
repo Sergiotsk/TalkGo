@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Platform, SafeAreaView, StyleSheet, View } from 'react-native';
+import { Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ConnectionStatus } from '../components/ConnectionStatus';
 import { EndCallButton } from '../components/EndCallButton';
@@ -33,6 +33,7 @@ export function ConversationScreen({ route, navigation }: ConversationScreenProp
   const peerSpeaking = useSessionStore((s) => s.peerSpeaking);
   const pipelineError = useSessionStore((s) => s.pipelineError);
   const consecutiveErrors = useSessionStore((s) => s.consecutiveErrors);
+  const lastTranscript = useSessionStore((s) => s.lastTranscript);
 
   const {
     connect,
@@ -41,6 +42,7 @@ export function ConversationScreen({ route, navigation }: ConversationScreenProp
     setMuted,
     setLocalSpeaking,
     setPeerSpeaking,
+    setLastTranscript,
   } = useSessionStore.getState();
 
   // Platform background mode
@@ -125,6 +127,9 @@ export function ConversationScreen({ route, navigation }: ConversationScreenProp
     onError: (message) => {
       console.error('[Conv] server error:', message);
     },
+    onTranscript: (text) => {
+      setLastTranscript(text);
+    },
   });
 
   // Wire signalingRef so the trickle ICE callback in useWebRTC can reach signaling
@@ -206,6 +211,16 @@ export function ConversationScreen({ route, navigation }: ConversationScreenProp
         />
       </View>
 
+      {/* Transcript */}
+      {lastTranscript ? (
+        <View style={styles.transcriptBox}>
+          <Text style={styles.transcriptLabel}>Traducción</Text>
+          <ScrollView>
+            <Text style={styles.transcriptText}>{lastTranscript}</Text>
+          </ScrollView>
+        </View>
+      ) : null}
+
       {/* Controls */}
       <View style={styles.controls}>
         {Platform.OS === 'android' || Platform.OS === 'ios' ? (
@@ -228,6 +243,28 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  transcriptBox: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 14,
+    marginVertical: 10,
+    maxHeight: 120,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4caf50',
+  },
+  transcriptLabel: {
+    color: '#4caf50',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  transcriptText: {
+    color: '#ffffff',
+    fontSize: 16,
+    lineHeight: 22,
   },
   vuRow: {
     flex: 1,

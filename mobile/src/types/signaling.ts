@@ -94,7 +94,8 @@ export interface SignalingMessage {
     | 'leave'
     | 'peer-left'
     | 'room-closed'
-    | 'error';
+    | 'error'
+    | 'transcript';
   room_id?: string;
   user_id?: string;
   session_id?: string;
@@ -103,4 +104,5 @@ export interface SignalingMessage {
   message?: string;
   lang?: string;
   reason?: string;
+  text?: string;
 }

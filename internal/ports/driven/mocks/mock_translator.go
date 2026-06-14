@@ -14,7 +14,7 @@ var _ driven.Translator = (*MockTranslator)(nil)
 // Configure behaviour by assigning TranslateStreamFn before use.
 // When TranslateStreamFn is nil the mock falls back to a passthrough.
 type MockTranslator struct {
-	TranslateStreamFn func(ctx context.Context, audioIn <-chan []byte, sourceLang, targetLang string) (<-chan []byte, error)
+	TranslateStreamFn func(ctx context.Context, audioIn <-chan []byte, sourceLang, targetLang string) (driven.TranslateResult, error)
 
 	translateStreamCalled atomic.Int64
 
@@ -41,7 +41,7 @@ func (m *MockTranslator) LastTargetLang() string {
 }
 
 // TranslateStream implements driven.Translator.
-func (m *MockTranslator) TranslateStream(ctx context.Context, audioIn <-chan []byte, sourceLang, targetLang string) (<-chan []byte, error) {
+func (m *MockTranslator) TranslateStream(ctx context.Context, audioIn <-chan []byte, sourceLang, targetLang string) (driven.TranslateResult, error) {
 	m.translateStreamCalled.Add(1)
 	m.lastLangMu.Lock()
 	m.lastSourceLang = sourceLang
@@ -50,5 +50,7 @@ func (m *MockTranslator) TranslateStream(ctx context.Context, audioIn <-chan []b
 	if m.TranslateStreamFn != nil {
 		return m.TranslateStreamFn(ctx, audioIn, sourceLang, targetLang)
 	}
-	return passthrough(ctx, audioIn), nil
+	transcriptCh := make(chan string)
+	close(transcriptCh)
+	return driven.TranslateResult{Audio: passthrough(ctx, audioIn), Transcript: transcriptCh}, nil
 }

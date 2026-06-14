@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/Sergiotsk/TalkGo/internal/ports/driven"
 )
 
 const (
@@ -58,14 +60,14 @@ type sessionUpdate struct {
 	OutputAudioFormat string `json:"output_audio_format"`
 }
 
-// TranslateStream connects to the OpenAI Realtime API and streams translated audio.
+// TranslateStream connects to the OpenAI Realtime API and streams translated audio and transcripts.
 // It returns an error immediately if the initial WebSocket connection fails.
-// The output channel is closed when audioIn is exhausted or ctx is cancelled.
+// Both channels are closed when audioIn is exhausted or ctx is cancelled.
 func (t *OpenAIRealtimeTranslator) TranslateStream(
 	ctx context.Context,
 	audioIn <-chan []byte,
 	sourceLang, targetLang string,
-) (<-chan []byte, error) {
+) (driven.TranslateResult, error) {
 	url := fmt.Sprintf("%s?model=%s", t.cfg.BaseURL, t.cfg.Model)
 
 	headers := http.Header{}
@@ -75,7 +77,7 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.DialContext(ctx, url, headers)
 	if err != nil {
-		return nil, fmt.Errorf("openai realtime: dial %s: %w", url, err)
+		return driven.TranslateResult{}, fmt.Errorf("openai realtime: dial %s: %w", url, err)
 	}
 
 	// Send session.update to configure translation behaviour.
@@ -86,7 +88,7 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 	})
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("openai realtime: marshal session.update: %w", err)
+		return driven.TranslateResult{}, fmt.Errorf("openai realtime: marshal session.update: %w", err)
 	}
 
 	update := wsMessage{
@@ -95,29 +97,23 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 	}
 	if err := conn.WriteJSON(update); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("openai realtime: send session.update: %w", err)
+		return driven.TranslateResult{}, fmt.Errorf("openai realtime: send session.update: %w", err)
 	}
 
-	out := make(chan []byte, 8)
+	audioCh := make(chan []byte, 8)
+	transcriptCh := make(chan string, 4)
 
 	// senderDone signals the receiver that no more audio will be written.
-	// The receiver owns the connection lifetime — it closes conn when it exits,
-	// which in turn unblocks any pending ReadJSON in the receiver goroutine.
 	var receiverDone sync.WaitGroup
 	receiverDone.Add(1)
 
 	// Sender goroutine: drain audioIn and forward frames to the WebSocket.
-	// When audioIn is exhausted (or ctx is cancelled) it signals the receiver
-	// by closing the connection cleanly with a WebSocket Close message.
 	go func() {
 		defer func() {
-			// Send a WebSocket close frame so the server (and our receiver)
-			// know the stream is over.  Ignore errors — receiver will notice.
 			_ = conn.WriteMessage(
 				websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 			)
-			// Wait for the receiver to drain remaining messages before closing.
 			receiverDone.Wait()
 			conn.Close()
 		}()
@@ -141,33 +137,47 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 		}
 	}()
 
-	// Receiver goroutine: read translated audio deltas from the WebSocket.
-	// Exits when the connection is closed (by the sender's close frame or ctx cancel).
+	// Receiver goroutine: read translated audio deltas and transcripts from the WebSocket.
 	go func() {
 		defer receiverDone.Done()
-		defer close(out)
+		defer close(audioCh)
+		defer close(transcriptCh)
+		var transcriptBuf string
 		for {
 			if ctx.Err() != nil {
 				return
 			}
 			var msg wsMessage
 			if err := conn.ReadJSON(&msg); err != nil {
-				// Connection closed or error — stop the loop.
 				return
 			}
-			if msg.Type == "response.audio.delta" && msg.Delta != "" {
+			switch msg.Type {
+			case "response.audio.delta":
+				if msg.Delta == "" {
+					continue
+				}
 				decoded, err := base64.StdEncoding.DecodeString(msg.Delta)
 				if err != nil {
 					continue
 				}
 				select {
-				case out <- decoded:
+				case audioCh <- decoded:
 				case <-ctx.Done():
 					return
+				}
+			case "response.audio_transcript.delta":
+				transcriptBuf += msg.Delta
+			case "response.audio_transcript.done":
+				if transcriptBuf != "" {
+					select {
+					case transcriptCh <- transcriptBuf:
+					default:
+					}
+					transcriptBuf = ""
 				}
 			}
 		}
 	}()
 
-	return out, nil
+	return driven.TranslateResult{Audio: audioCh, Transcript: transcriptCh}, nil
 }

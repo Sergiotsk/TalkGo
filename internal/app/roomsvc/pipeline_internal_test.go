@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Sergiotsk/TalkGo/internal/domain/room"
+	"github.com/Sergiotsk/TalkGo/internal/ports/driven"
 	"github.com/Sergiotsk/TalkGo/internal/ports/driven/mocks"
 )
 
@@ -741,13 +742,13 @@ func TestPipelineHalf_TranslationError_SendsErrorEvent(t *testing.T) {
 	translateErr := fmt.Errorf("openai: simulated translation failure")
 
 	errTranslator := &mocks.MockTranslator{
-		TranslateStreamFn: func(ctx context.Context, audioIn <-chan []byte, sourceLang, targetLang string) (<-chan []byte, error) {
+		TranslateStreamFn: func(ctx context.Context, audioIn <-chan []byte, sourceLang, targetLang string) (driven.TranslateResult, error) {
 			// Drain input so the codec goroutine doesn't block.
 			go func() {
 				for range audioIn {
 				}
 			}()
-			return nil, translateErr
+			return driven.TranslateResult{}, translateErr
 		},
 	}
 

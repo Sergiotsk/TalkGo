@@ -89,11 +89,11 @@ func TestOpenAIRealtimeTranslator_TranslateStream(t *testing.T) {
 	audioIn <- audioFrame
 	close(audioIn)
 
-	out, err := tr.TranslateStream(ctx, audioIn, "es", "en")
+	result, err := tr.TranslateStream(ctx, audioIn, "es", "en")
 	require.NoError(t, err)
 
 	select {
-	case frame, ok := <-out:
+	case frame, ok := <-result.Audio:
 		require.True(t, ok, "output channel should deliver a frame before closing")
 		// The echo server returns the same base64 audio, so decoding gives us back the original bytes.
 		decoded, decErr := base64.StdEncoding.DecodeString(base64.StdEncoding.EncodeToString(audioFrame))
@@ -137,7 +137,7 @@ func TestOpenAIRealtimeTranslator_ContextCancellation(t *testing.T) {
 	// audioIn never closes — the context cancellation is the only exit signal.
 	audioIn := make(chan []byte)
 
-	out, err := translator.NewOpenAIRealtimeTranslator(cfg).TranslateStream(ctx, audioIn, "en", "es")
+	result, err := translator.NewOpenAIRealtimeTranslator(cfg).TranslateStream(ctx, audioIn, "en", "es")
 	_ = tr // silence unused warning
 	require.NoError(t, err)
 
@@ -148,7 +148,7 @@ func TestOpenAIRealtimeTranslator_ContextCancellation(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for range out {
+		for range result.Audio {
 		}
 	}()
 

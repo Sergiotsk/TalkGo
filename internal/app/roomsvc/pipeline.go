@@ -196,7 +196,7 @@ func (s *Service) runHalf(ctx context.Context, p *pipeline, half *pipelineHalf) 
 
 	// Stage 3: Translate
 	tracker.StartStage(StageTranslate)
-	translatedCh, err := s.translator.TranslateStream(ctx, bpCh, half.sourceLang, half.targetLang)
+	result, err := s.translator.TranslateStream(ctx, bpCh, half.sourceLang, half.targetLang)
 	if err != nil {
 		half.errorChunks.Add(int64(frameCount))
 		tracker.Emit(ctx, half.dir, roomID, "error")
@@ -207,9 +207,21 @@ func (s *Service) runHalf(ctx context.Context, p *pipeline, half *pipelineHalf) 
 	}
 	tracker.EndStage(StageTranslate)
 
+	// Forward transcripts to the target session as they arrive.
+	targetSessID := half.targetSessID
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		for text := range result.Transcript {
+			s.notifier.NotifySession(targetSessID, "transcript", map[string]string{
+				"text": text,
+			})
+		}
+	}()
+
 	// Stage 4: Encode
 	tracker.StartStage(StageEncode)
-	opusOutCh, err := s.codec.Encode(ctx, translatedCh)
+	opusOutCh, err := s.codec.Encode(ctx, result.Audio)
 	if err != nil {
 		half.errorChunks.Add(int64(frameCount))
 		tracker.Emit(ctx, half.dir, roomID, "error")

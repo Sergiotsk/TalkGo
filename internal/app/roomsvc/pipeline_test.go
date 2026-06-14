@@ -263,8 +263,10 @@ func TestService_SC04_BackpressureDropsOldChunk(t *testing.T) {
 
 	// slowTranslator delays each frame by 200 ms — creates heavy backpressure.
 	slowTranslator := &mocks.MockTranslator{
-		TranslateStreamFn: func(ctx context.Context, audioIn <-chan []byte, src, tgt string) (<-chan []byte, error) {
+		TranslateStreamFn: func(ctx context.Context, audioIn <-chan []byte, src, tgt string) (driven.TranslateResult, error) {
 			out := make(chan []byte, 1)
+			transcriptCh := make(chan string)
+			close(transcriptCh)
 			go func() {
 				defer close(out)
 				for frame := range audioIn {
@@ -280,7 +282,7 @@ func TestService_SC04_BackpressureDropsOldChunk(t *testing.T) {
 					}
 				}
 			}()
-			return out, nil
+			return driven.TranslateResult{Audio: out, Transcript: transcriptCh}, nil
 		},
 	}
 
@@ -418,17 +420,19 @@ func TestService_SC05_TranslatorError_NotifiesClient(t *testing.T) {
 	// Translator: A→B direction (src="es") returns an error;
 	//             B→A direction (src="en") works as passthrough.
 	errorTranslator := &mocks.MockTranslator{
-		TranslateStreamFn: func(ctx context.Context, audioIn <-chan []byte, src, tgt string) (<-chan []byte, error) {
+		TranslateStreamFn: func(ctx context.Context, audioIn <-chan []byte, src, tgt string) (driven.TranslateResult, error) {
 			if src == "es" {
 				// Drain audioIn so the backpressure goroutine doesn't block.
 				go func() {
 					for range audioIn {
 					}
 				}()
-				return nil, errors.New("openai: rate limit exceeded")
+				return driven.TranslateResult{}, errors.New("openai: rate limit exceeded")
 			}
 			// B→A: passthrough — re-implement inline to avoid importing mocks internals.
 			out := make(chan []byte, 8)
+			transcriptCh := make(chan string)
+			close(transcriptCh)
 			go func() {
 				defer close(out)
 				for {
@@ -447,7 +451,7 @@ func TestService_SC05_TranslatorError_NotifiesClient(t *testing.T) {
 					}
 				}
 			}()
-			return out, nil
+			return driven.TranslateResult{Audio: out, Transcript: transcriptCh}, nil
 		},
 	}
 

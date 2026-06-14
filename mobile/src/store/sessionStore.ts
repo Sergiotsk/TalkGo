@@ -28,6 +28,9 @@ interface SessionState {
 
   // Reconnection
   reconnectAttempt: number;
+
+  // Transcription
+  lastTranscript: string | null;
 }
 
 // --- Actions ---
@@ -60,6 +63,10 @@ interface SessionActions {
 
   // Reconnection
   setReconnectAttempt: (attempt: number) => void;
+
+  // Transcription
+  setLastTranscript: (text: string) => void;
+  clearTranscript: () => void;
 }
 
 export type SessionStore = SessionState & SessionActions;
@@ -80,6 +87,7 @@ const initialState: SessionState = {
   consecutiveErrors: 0,
   elapsedSeconds: 0,
   reconnectAttempt: 0,
+  lastTranscript: null,
 };
 
 // --- Store ---
@@ -119,4 +127,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   resetTimer: () => set({ elapsedSeconds: 0 }),
 
   setReconnectAttempt: (attempt) => set({ reconnectAttempt: attempt }),
+
+  setLastTranscript: (text) => set({ lastTranscript: text }),
+  clearTranscript: () => set({ lastTranscript: null }),
 }));
