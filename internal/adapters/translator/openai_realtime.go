@@ -175,6 +175,17 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 					}
 					transcriptBuf = ""
 				}
+			default:
+				// Log unexpected event types to diagnose missing transcripts.
+				if msg.Type != "session.created" && msg.Type != "session.updated" &&
+					msg.Type != "response.created" && msg.Type != "response.done" &&
+					msg.Type != "response.output_item.added" && msg.Type != "response.output_item.done" &&
+					msg.Type != "response.content_part.added" && msg.Type != "response.content_part.done" &&
+					msg.Type != "input_audio_buffer.speech_started" && msg.Type != "input_audio_buffer.speech_stopped" &&
+					msg.Type != "input_audio_buffer.committed" && msg.Type != "rate_limits.updated" &&
+					msg.Type != "conversation.item.created" {
+					slog.Info("openai_realtime_event", "type", msg.Type)
+				}
 			}
 		}
 	}()
