@@ -79,9 +79,9 @@ func (c *OpusCodec) Decode(ctx context.Context, opusIn <-chan []byte) (<-chan []
 }
 
 // Encode converts PCM16 LE frames from pcmIn into Opus frames on the returned
-// channel. Frames with an odd byte length are silently skipped (PCM16 requires
-// an even number of bytes). The output channel is closed when pcmIn is closed
-// or ctx is cancelled.
+// channel. Incoming chunks may be any size; samples are accumulated until a
+// complete opusFrameSize-sample frame is available. The output channel is
+// closed when pcmIn is closed or ctx is cancelled.
 func (c *OpusCodec) Encode(ctx context.Context, pcmIn <-chan []byte) (<-chan []byte, error) {
 	out := make(chan []byte, 8)
 	go func() {
@@ -91,8 +91,30 @@ func (c *OpusCodec) Encode(ctx context.Context, pcmIn <-chan []byte) (<-chan []b
 			slog.Error("opus: failed to create encoder", "err", err)
 			return
 		}
-		// Pre-allocate output buffer for encoded Opus packet.
 		encodedBuf := make([]byte, opusMaxPacketSize)
+		// accumBuf holds int16 samples waiting to form a complete frame.
+		accumBuf := make([]int16, 0, opusFrameSize*2)
+
+		encode := func() bool {
+			for len(accumBuf) >= opusFrameSize {
+				frame := accumBuf[:opusFrameSize]
+				n, encErr := enc.Encode(frame, encodedBuf)
+				if encErr != nil {
+					slog.Warn("opus: encode error, dropping frame", "err", encErr)
+				} else {
+					pkt := make([]byte, n)
+					copy(pkt, encodedBuf[:n])
+					select {
+					case out <- pkt:
+					case <-ctx.Done():
+						return false
+					}
+				}
+				accumBuf = accumBuf[opusFrameSize:]
+			}
+			return true
+		}
+
 		for {
 			select {
 			case pcm, ok := <-pcmIn:
@@ -103,23 +125,11 @@ func (c *OpusCodec) Encode(ctx context.Context, pcmIn <-chan []byte) (<-chan []b
 					slog.Warn("opus: skipping odd-length PCM frame", "len", len(pcm))
 					continue
 				}
-				// Unmarshal []byte PCM16 LE → []int16.
 				numSamples := len(pcm) / 2
-				pcm16 := make([]int16, numSamples)
 				for i := range numSamples {
-					pcm16[i] = int16(pcm[i*2]) | int16(pcm[i*2+1])<<8
+					accumBuf = append(accumBuf, int16(pcm[i*2])|int16(pcm[i*2+1])<<8)
 				}
-				n, encErr := enc.Encode(pcm16, encodedBuf)
-				if encErr != nil {
-					slog.Warn("opus: encode error, dropping frame", "err", encErr)
-					continue
-				}
-				// Copy to avoid sharing the reused buffer.
-				frame := make([]byte, n)
-				copy(frame, encodedBuf[:n])
-				select {
-				case out <- frame:
-				case <-ctx.Done():
+				if !encode() {
 					return
 				}
 			case <-ctx.Done():
