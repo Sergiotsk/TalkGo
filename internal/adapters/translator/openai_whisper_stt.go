@@ -81,6 +81,11 @@ type sttAudio struct {
 type sttInput struct {
 	Format        sttFormat        `json:"format"`
 	Transcription sttTranscription `json:"transcription"`
+	TurnDetection *sttTurnDetection `json:"turn_detection,omitempty"`
+}
+
+type sttTurnDetection struct {
+	Type string `json:"type"` // "server_vad"
 }
 
 type sttFormat struct {
@@ -121,6 +126,7 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 					Model:    w.cfg.TranscriptionModel,
 					Language: lang,
 				},
+				TurnDetection: &sttTurnDetection{Type: "server_vad"},
 			},
 		},
 	})
