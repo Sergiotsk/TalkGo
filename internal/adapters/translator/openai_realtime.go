@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	defaultModel   = "gpt-realtime-translate"
+	defaultModel   = "gpt-realtime"
 	defaultBaseURL = "wss://api.openai.com/v1/realtime"
 )
 
@@ -56,12 +56,8 @@ type wsMessage struct {
 }
 
 // sessionUpdate is the payload for session.update messages.
-// For gpt-realtime-translate the session requires a "type" field and
-// uses input_language / output_language instead of instructions.
 type sessionUpdate struct {
-	Type              string `json:"type"`
-	InputLanguage     string `json:"input_language"`
-	OutputLanguage    string `json:"output_language"`
+	Instructions      string `json:"instructions"`
 	InputAudioFormat  string `json:"input_audio_format"`
 	OutputAudioFormat string `json:"output_audio_format"`
 }
@@ -87,9 +83,7 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 
 	// Send session.update to configure translation behaviour.
 	sessionPayload, err := json.Marshal(sessionUpdate{
-		Type:              "translation",
-		InputLanguage:     sourceLang,
-		OutputLanguage:    targetLang,
+		Instructions:      fmt.Sprintf("Translate from %s to %s. Output only the translation.", sourceLang, targetLang),
 		InputAudioFormat:  "pcm16",
 		OutputAudioFormat: "pcm16",
 	})
