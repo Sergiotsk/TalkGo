@@ -18,7 +18,7 @@ const (
 	// The transcription session type is signaled via session.update, not the URL model.
 	defaultSessionModel       = "gpt-realtime-whisper"
 	defaultTranscriptionModel = "gpt-realtime-whisper"
-	defaultWhisperBaseURL     = "wss://api.openai.com/v1/realtime"
+	defaultWhisperBaseURL     = "wss://api.openai.com/v1/realtime/transcription"
 )
 
 // WhisperSTTConfig holds configuration for the Whisper STT adapter.
