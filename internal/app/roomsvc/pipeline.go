@@ -213,6 +213,7 @@ func (s *Service) runHalf(ctx context.Context, p *pipeline, half *pipelineHalf) 
 	go func() {
 		defer p.wg.Done()
 		for text := range result.Transcript {
+			slog.Info("pipeline_transcript", "dir", half.dir, "target_session", targetSessID, "text", text)
 			s.notifier.NotifySession(targetSessID, "transcript", map[string]string{
 				"text": text,
 			})

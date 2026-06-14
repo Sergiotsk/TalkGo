@@ -235,8 +235,10 @@ func (h *Hub) NotifySession(sessionID, msgType string, fields map[string]string)
 	client, ok := h.sessionClients[sessionID]
 	h.mu.RUnlock()
 	if !ok {
-		return // session not connected — drop silently
+		slog.Warn("notify_session_not_found", "component", "hub", "session_id", sessionID, "type", msgType)
+		return
 	}
+	slog.Info("notify_session_sent", "component", "hub", "session_id", sessionID, "type", msgType)
 
 	msg := make(map[string]string, len(fields)+1)
 	msg["type"] = msgType

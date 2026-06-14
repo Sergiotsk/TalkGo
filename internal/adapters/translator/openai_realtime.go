@@ -97,7 +97,12 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 	// Send session.update to configure translation behaviour.
 	sessionPayload, err := json.Marshal(sessionUpdate{
 		Type:         "realtime",
-		Instructions: fmt.Sprintf("Translate from %s to %s. Output only the translation.", sourceLang, targetLang),
+		Instructions: fmt.Sprintf(
+			"You are a real-time speech translator. Your ONLY task is to listen to speech in %s and immediately speak the translation in %s. "+
+				"NEVER respond as an AI assistant. NEVER greet, acknowledge, or chat. NEVER speak in %s. "+
+				"ONLY output the spoken translation in %s. If you hear noise or silence, stay silent.",
+			sourceLang, targetLang, sourceLang, targetLang,
+		),
 	})
 	if err != nil {
 		conn.Close()
