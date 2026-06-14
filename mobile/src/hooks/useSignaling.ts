@@ -30,18 +30,23 @@ export function useSignaling(config: UseSignalingConfig): UseSignalingReturn {
 
   const connect = useCallback(() => {
     const { serverUrl, roomId } = configRef.current;
-    const ws = new WebSocket(`${serverUrl}/ws/${roomId}`);
+    const url = `${serverUrl}/ws/${roomId}`;
+    console.log('[Signaling] connecting to', url);
+    const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      console.log('[Signaling] connected');
       setIsConnected(true);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (e) => {
+      console.log('[Signaling] closed', e.code, e.reason);
       setIsConnected(false);
     };
 
-    ws.onerror = () => {
+    ws.onerror = (e) => {
+      console.error('[Signaling] error', e);
       setIsConnected(false);
     };
 

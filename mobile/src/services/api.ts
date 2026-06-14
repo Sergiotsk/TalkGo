@@ -21,6 +21,7 @@ export interface CreateRoomResponse {
 export interface FindRoomResponse {
   room_id: string;
   short_code?: string;
+  peer_lang?: string;
 }
 
 /**

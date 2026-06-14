@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PermissionsAndroid, Platform } from 'react-native';
 import {
   RTCPeerConnection,
   RTCSessionDescription,
@@ -15,10 +16,16 @@ import type {
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  {
+    urls: 'turn:138.201.95.167:3478',
+    username: 'talkgo',
+    credential: 'Avivirqueson2dias',
+  },
 ];
 
 export interface UseWebRTCConfig {
   iceServers?: RTCIceServer[];
+  onIceCandidate?: (candidate: string) => void;
 }
 
 export interface UseWebRTCReturn {
@@ -31,7 +38,7 @@ export interface UseWebRTCReturn {
   close: () => void;
 }
 
-export function useWebRTC(config?: UseWebRTCConfig): UseWebRTCReturn {
+export function useWebRTC(config?: UseWebRTCConfig, onIceCandidate?: (candidate: string) => void): UseWebRTCReturn {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [iceConnectionState, setIceConnectionState] =
@@ -51,22 +58,50 @@ export function useWebRTC(config?: UseWebRTCConfig): UseWebRTCReturn {
       }
     };
 
+    // Trickle ICE — send candidates to the server as they're gathered
+    pc.onicecandidate = (event: { candidate: { candidate: string } | null }) => {
+      if (event.candidate?.candidate && onIceCandidate) {
+        onIceCandidate(event.candidate.candidate);
+      }
+    };
+
     // Track ICE connection state
     pc.oniceconnectionstatechange = () => {
       setIceConnectionState(pc.iceConnectionState as RTCIceConnectionState);
     };
 
     // Request microphone access and add to peer connection
-    mediaDevices
-      .getUserMedia({ audio: true, video: false })
-      .then((stream: MediaStream) => {
-        setLocalStream(stream);
-        // Add tracks to peer connection
-        pc.addStream(stream);
-      })
-      .catch(() => {
-        // Microphone unavailable (e.g., test environment) — continue without stream
-      });
+    const requestAndGetMedia = async () => {
+      if (Platform.OS === 'android') {
+        const result = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          {
+            title: 'Micrófono',
+            message: 'TalkGo necesita el micrófono para la conversación.',
+            buttonPositive: 'Permitir',
+            buttonNegative: 'Cancelar',
+          }
+        );
+        if (result !== PermissionsAndroid.RESULTS.GRANTED) {
+          console.error('[WebRTC] mic permission denied, result:', result);
+          return;
+        }
+        console.log('[WebRTC] mic permission granted');
+      }
+
+      mediaDevices
+        .getUserMedia({ audio: true, video: false })
+        .then((stream: MediaStream) => {
+          console.log('[WebRTC] getUserMedia OK, tracks:', stream.getTracks().length);
+          setLocalStream(stream);
+          stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+        })
+        .catch((err: unknown) => {
+          console.error('[WebRTC] getUserMedia FAILED:', err);
+        });
+    };
+
+    void requestAndGetMedia();
 
     return () => {
       // Cleanup on unmount

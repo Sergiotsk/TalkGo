@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { Platform, SafeAreaView, StyleSheet, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ConnectionStatus } from '../components/ConnectionStatus';
@@ -23,7 +23,7 @@ type ConversationScreenProps = NativeStackScreenProps<RootStackParamList, 'Conve
  * ConversationScreen — the main active call screen.
  * Receives roomId, shortCode, userId, serverUrl, localLang, peerLang via route.params.
  */
-export function ConversationScreen({ route }: ConversationScreenProps): React.JSX.Element {
+export function ConversationScreen({ route, navigation }: ConversationScreenProps): React.JSX.Element {
   const { roomId, shortCode, userId, serverUrl, localLang, peerLang } = route.params;
   // Store state
   const connectionState = useSessionStore((s) => s.connectionState);
@@ -59,8 +59,16 @@ export function ConversationScreen({ route }: ConversationScreenProps): React.JS
   // Session timer (increments while connected)
   useSessionTimer();
 
-  // WebRTC
-  const webrtc = useWebRTC();
+  // Ref to signaling to avoid circular dependency with useWebRTC trickle ICE callback
+  const signalingRef = useRef<ReturnType<typeof useSignaling> | null>(null);
+
+  // WebRTC — trickle ICE: send candidates to server as they're gathered
+  const webrtc = useWebRTC(undefined, (candidate) => {
+    const sid = useSessionStore.getState().sessionId;
+    if (sid && signalingRef.current) {
+      signalingRef.current.sendIceCandidate(sid, candidate);
+    }
+  });
 
   // Audio level detection
   const levels = useAudioLevel(
@@ -94,17 +102,17 @@ export function ConversationScreen({ route }: ConversationScreenProps): React.JS
     serverUrl,
     roomId,
     onJoined: (newSessionId) => {
+      console.log('[Conv] joined, sessionId:', newSessionId);
       connect(roomId, shortCode, newSessionId, localLang, peerLang);
-      // Send offer after joining
-      void webrtc.createOffer().then((offer) => {
-        signaling.sendOffer(newSessionId, offer.sdp ?? '');
-      });
+      // Offer is sent by the useEffect below once localStream is ready
     },
     onAnswer: (sdp) => {
+      console.log('[Conv] received answer, sdp length:', sdp.length);
       void webrtc.setRemoteAnswer(sdp);
       reconnection.reset();
     },
     onIceCandidate: (candidate) => {
+      console.log('[Conv] received ICE candidate');
       void webrtc.addIceCandidate(candidate);
     },
     onPeerLeft: (_peerSessionId) => {
@@ -114,17 +122,38 @@ export function ConversationScreen({ route }: ConversationScreenProps): React.JS
     onRoomClosed: (_reason) => {
       disconnect();
     },
-    onError: (_message) => {
-      // Errors handled by PipelineErrorBanner
+    onError: (message) => {
+      console.error('[Conv] server error:', message);
     },
   });
 
-  // Join the room on mount
+  // Wire signalingRef so the trickle ICE callback in useWebRTC can reach signaling
+  signalingRef.current = signaling;
+
+  // Join the room once the WebSocket is connected
+  const hasJoinedRef = useRef(false);
   useEffect(() => {
-    setConnectionState('connecting');
-    signaling.sendJoin(userId, localLang);
+    if (signaling.isConnected && !hasJoinedRef.current) {
+      hasJoinedRef.current = true;
+      setConnectionState('connecting');
+      signaling.sendJoin(userId, localLang);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [signaling.isConnected]);
+
+  // Send WebRTC offer once joined (sessionId set) AND local audio stream is ready.
+  // This prevents sending an empty SDP when getUserMedia hasn't resolved yet.
+  const hasSentOfferRef = useRef(false);
+  useEffect(() => {
+    if (sessionId && webrtc.localStream && !hasSentOfferRef.current) {
+      hasSentOfferRef.current = true;
+      void webrtc.createOffer().then((offer) => {
+        console.log('[Conv] sending offer, sdp length:', offer.sdp?.length);
+        signaling.sendOffer(sessionId, offer.sdp ?? '');
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, webrtc.localStream]);
 
   // Trigger reconnection on WS close
   useEffect(() => {
@@ -146,7 +175,8 @@ export function ConversationScreen({ route }: ConversationScreenProps): React.JS
     webrtc.close();
     signaling.close();
     disconnect();
-  }, [sessionId, signaling, webrtc, disconnect, reconnection]);
+    navigation.replace('Home');
+  }, [sessionId, signaling, webrtc, disconnect, reconnection, navigation]);
 
   return (
     <SafeAreaView style={styles.container}>

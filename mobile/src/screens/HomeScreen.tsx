@@ -20,11 +20,19 @@ function randomUserId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+const PEER_LANGS = [
+  { code: 'es', label: 'ES' },
+  { code: 'pt', label: 'PT' },
+  { code: 'en', label: 'EN' },
+  { code: 'fr', label: 'FR' },
+] as const;
+
 export function HomeScreen() {
   const navigation = useNavigation<Nav>();
   const { name, localLang } = useUserStore();
 
   // — Crear sala state —
+  const [peerLang, setPeerLang] = useState('en');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const [createdRoom, setCreatedRoom] = useState<CreateRoomResponse | null>(null);
@@ -39,9 +47,10 @@ export function HomeScreen() {
     setCreateError('');
     setCreatedRoom(null);
     try {
-      const room = await createRoom(localLang, 'auto');
+      const room = await createRoom(localLang, peerLang);
       setCreatedRoom(room);
-    } catch {
+    } catch (e) {
+      console.error('[HomeScreen] createRoom failed:', e);
       setCreateError('Error al crear la sala. Intentá de nuevo.');
     } finally {
       setCreating(false);
@@ -72,7 +81,7 @@ export function HomeScreen() {
         userId: randomUserId(),
         serverUrl: SERVER_URL,
         localLang,
-        peerLang: 'auto',
+        peerLang: room.peer_lang ?? 'en',
       });
     } catch (e) {
       const err = e as { message?: string };
@@ -90,6 +99,21 @@ export function HomeScreen() {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Nueva conversación</Text>
         <Text style={styles.cardDesc}>Creá una sala y compartí el código con tu interlocutor.</Text>
+
+        <Text style={styles.label}>Idioma del otro</Text>
+        <View style={styles.langRow}>
+          {PEER_LANGS.map(({ code, label }) => (
+            <TouchableOpacity
+              key={code}
+              style={[styles.langBtn, peerLang === code && styles.langBtnActive]}
+              onPress={() => setPeerLang(code)}
+            >
+              <Text style={[styles.langText, peerLang === code && styles.langTextActive]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
         {createdRoom ? (
           <View style={styles.codeBox}>
@@ -171,6 +195,37 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 13,
     marginBottom: 16,
+  },
+  label: {
+    color: '#888888',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  langRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  langBtn: {
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  langBtnActive: {
+    borderColor: '#4caf50',
+    backgroundColor: '#1a2e1a',
+  },
+  langText: {
+    color: '#aaaaaa',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  langTextActive: {
+    color: '#4caf50',
   },
   codeBox: {
     alignItems: 'center',

@@ -197,7 +197,10 @@ func (p *PionPeer) HandleOffer(_ context.Context, sessionID, sdp string) error {
 	return nil
 }
 
-// CreateAnswer generates a local SDP answer and sets it as the local description.
+// CreateAnswer generates a local SDP answer, waits for ICE gathering to complete,
+// and returns the final local description (with all candidates included).
+// Waiting for gathering ensures relay candidates from TURN are present in the SDP,
+// avoiding ICE failure when the server runs inside Docker (non-routable host candidates).
 func (p *PionPeer) CreateAnswer(_ context.Context, sessionID string) (string, error) {
 	p.mu.RLock()
 	pc, ok := p.peers[sessionID]
@@ -210,10 +213,18 @@ func (p *PionPeer) CreateAnswer(_ context.Context, sessionID string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("webrtc.CreateAnswer: %w", err)
 	}
+
+	// GatheringCompletePromise must be called BEFORE SetLocalDescription to avoid a race.
+	gatherComplete := pionwebrtc.GatheringCompletePromise(pc)
+
 	if err := pc.SetLocalDescription(answer); err != nil {
 		return "", fmt.Errorf("webrtc.CreateAnswer: setting local description: %w", err)
 	}
-	return answer.SDP, nil
+
+	// Block until ICE gathering finishes so TURN relay candidates are included in the SDP.
+	<-gatherComplete
+
+	return pc.LocalDescription().SDP, nil
 }
 
 // AddICECandidate adds an ICE candidate to the peer connection.

@@ -467,6 +467,12 @@ func (s *Service) HandleSignaling(ctx context.Context, msg driving.SignalingMess
 		if err := s.peer.HandleOffer(ctx, msg.SessionID, msg.SDP); err != nil {
 			return driving.SignalingMessage{Type: "error", Message: err.Error()}, nil
 		}
+		// Register trickle ICE callback before gathering starts (CreateAnswer triggers gathering).
+		_ = s.peer.OnICECandidate(ctx, msg.SessionID, func(candidate string) {
+			s.notifier.NotifySession(msg.SessionID, "ice-candidate", map[string]string{
+				"candidate": candidate,
+			})
+		})
 		answer, err := s.peer.CreateAnswer(ctx, msg.SessionID)
 		if err != nil {
 			return driving.SignalingMessage{Type: "error", Message: err.Error()}, nil
