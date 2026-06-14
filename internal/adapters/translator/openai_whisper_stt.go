@@ -14,9 +14,7 @@ import (
 )
 
 const (
-	// defaultSessionModel is the model param in the WebSocket URL.
-	// ?intent=transcription activates transcription mode — allows type:"transcription" in session.update.
-	defaultSessionModel       = "gpt-realtime-whisper"
+	// defaultTranscriptionModel is the model used in session.update input_audio_transcription.
 	defaultTranscriptionModel = "gpt-realtime-whisper"
 	defaultWhisperBaseURL     = "wss://api.openai.com/v1/realtime"
 )
@@ -24,15 +22,11 @@ const (
 // WhisperSTTConfig holds configuration for the Whisper STT adapter.
 type WhisperSTTConfig struct {
 	APIKey             string
-	SessionModel       string // realtime session model for URL — default: gpt-realtime
-	TranscriptionModel string // transcription model in session.update — default: gpt-realtime-whisper
+	TranscriptionModel string // default: gpt-realtime-whisper
 	BaseURL            string // default: wss://api.openai.com/v1/realtime
 }
 
 func (c *WhisperSTTConfig) applyDefaults() {
-	if c.SessionModel == "" {
-		c.SessionModel = defaultSessionModel
-	}
 	if c.TranscriptionModel == "" {
 		c.TranscriptionModel = defaultTranscriptionModel
 	}
@@ -53,49 +47,31 @@ func NewWhisperSTT(cfg WhisperSTTConfig) *WhisperSTT {
 }
 
 // sttMessage is the shape of WebSocket messages for the transcription API.
+// transcript is a plain string in conversation.item.input_audio_transcription.completed.
 type sttMessage struct {
-	Type    string          `json:"type"`
-	Session json.RawMessage `json:"session,omitempty"`
-	Audio   string          `json:"audio,omitempty"`
-	Delta   string          `json:"delta,omitempty"`
-	Error   json.RawMessage `json:"error,omitempty"`
-	// Transcript field for transcription.completed events.
-	Transcript *sttTranscript `json:"transcript,omitempty"`
+	Type       string          `json:"type"`
+	Session    json.RawMessage `json:"session,omitempty"`
+	Audio      string          `json:"audio,omitempty"`
+	Delta      string          `json:"delta,omitempty"`
+	Error      json.RawMessage `json:"error,omitempty"`
+	Transcript string          `json:"transcript,omitempty"` // plain string, not nested object
 }
 
-type sttTranscript struct {
-	Text string `json:"text"`
-}
-
-// sttSessionPayload is the nested session config for gpt-realtime-whisper.
-// Type:"transcription" is required when connecting with ?intent=transcription.
+// sttSessionPayload matches the realtime session.update format.
+// Used with ?intent=transcription endpoint — same session schema as regular realtime.
 type sttSessionPayload struct {
-	Type  string    `json:"type"`
-	Audio *sttAudio `json:"audio"`
+	InputAudioFormat        string              `json:"input_audio_format"`
+	InputAudioTranscription sttTranscriptionCfg `json:"input_audio_transcription"`
+	TurnDetection           sttTurnDetection    `json:"turn_detection"`
 }
 
-type sttAudio struct {
-	Input sttInput `json:"input"`
-}
-
-type sttInput struct {
-	Format        sttFormat         `json:"format"`
-	Transcription sttTranscription  `json:"transcription"`
-	TurnDetection *sttTurnDetection `json:"turn_detection,omitempty"`
+type sttTranscriptionCfg struct {
+	Model    string `json:"model"`
+	Language string `json:"language,omitempty"`
 }
 
 type sttTurnDetection struct {
 	Type string `json:"type"` // "server_vad"
-}
-
-type sttFormat struct {
-	Type string `json:"type"`
-	Rate int    `json:"rate"`
-}
-
-type sttTranscription struct {
-	Model    string `json:"model"`
-	Language string `json:"language,omitempty"`
 }
 
 // Transcribe connects to gpt-realtime-whisper, streams audioIn, and returns
@@ -114,28 +90,24 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 	}
 
 	// Send session.update with transcription config.
+	// pcm16 = PCM 16-bit signed LE — matches what OpusCodec decodes to at 24kHz.
 	sessionPayload, err := json.Marshal(sttSessionPayload{
-		Type: "transcription",
-		Audio: &sttAudio{
-			Input: sttInput{
-				Format: sttFormat{
-					Type: "audio/pcm",
-					Rate: 24000,
-				},
-				Transcription: sttTranscription{
-					Model:    w.cfg.TranscriptionModel,
-					Language: lang,
-				},
-				TurnDetection: &sttTurnDetection{Type: "server_vad"},
-			},
+		InputAudioFormat: "pcm16",
+		InputAudioTranscription: sttTranscriptionCfg{
+			Model:    w.cfg.TranscriptionModel,
+			Language: lang,
 		},
+		TurnDetection: sttTurnDetection{Type: "server_vad"},
 	})
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("whisper stt: marshal session: %w", err)
 	}
 
-	update := sttMessage{
+	update := struct {
+		Type    string          `json:"type"`
+		Session json.RawMessage `json:"session"`
+	}{
 		Type:    "session.update",
 		Session: json.RawMessage(sessionPayload),
 	}
@@ -201,14 +173,13 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 			}
 			switch msg.Type {
 			case "conversation.item.input_audio_transcription.delta":
-				// Partial transcript — useful for future streaming display.
-				// Not forwarded for now; we use completed events for quality.
+				// Partial transcript — not forwarded; completed events are used for quality.
 
 			case "conversation.item.input_audio_transcription.completed":
-				if msg.Transcript != nil && msg.Transcript.Text != "" {
-					slog.Info("whisper_transcript", "lang", lang, "text", msg.Transcript.Text)
+				if msg.Transcript != "" {
+					slog.Info("whisper_transcript", "lang", lang, "text", msg.Transcript)
 					select {
-					case transcriptCh <- msg.Transcript.Text:
+					case transcriptCh <- msg.Transcript:
 					case <-ctx.Done():
 						return
 					}
