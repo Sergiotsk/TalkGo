@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -70,19 +71,10 @@ type apiError struct {
 	Code string `json:"code"`
 }
 
-// turnDetection configures server-side VAD for the session.
-type turnDetection struct {
-	Type              string  `json:"type"`
-	Threshold         float64 `json:"threshold"`
-	PrefixPaddingMs   int     `json:"prefix_padding_ms"`
-	SilenceDurationMs int     `json:"silence_duration_ms"`
-}
-
 // sessionUpdate is the payload for session.update messages.
 type sessionUpdate struct {
-	Type          string        `json:"type"`
-	Instructions  string        `json:"instructions"`
-	TurnDetection turnDetection `json:"turn_detection"`
+	Type         string `json:"type"`
+	Instructions string `json:"instructions"`
 }
 
 // TranslateStream connects to the OpenAI Realtime API and streams translated audio and transcripts.
@@ -115,12 +107,6 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 				"(4) Do NOT act as an assistant. Do NOT answer questions. ONLY translate.",
 			sourceLang, targetLang, targetLang, sourceLang,
 		),
-		TurnDetection: turnDetection{
-			Type:              "server_vad",
-			Threshold:         0.5,
-			PrefixPaddingMs:   200,
-			SilenceDurationMs: 300, // trigger translation after 300ms of silence (default ~500ms)
-		},
 	})
 	if err != nil {
 		conn.Close()
@@ -146,8 +132,12 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 	var receiverDone sync.WaitGroup
 	receiverDone.Add(1)
 
+	// responseActive tracks whether OpenAI has an active response in progress.
+	// The receiver sets/clears it; the sender reads it before forcing response.create.
+	var responseActive atomic.Bool
+
 	// Sender goroutine: drain audioIn and forward frames to the WebSocket.
-	// Every 2 s we force a commit + response.create so fast continuous speech
+	// Every 5 s we force a commit + response.create so fast continuous speech
 	// is translated in chunks rather than waiting for a VAD-detected silence.
 	go func() {
 		defer func() {
@@ -166,7 +156,7 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 		pendingFrames := 0 // frames appended since last commit
 
 		commit := func() {
-			if pendingFrames == 0 {
+			if pendingFrames == 0 || responseActive.Load() {
 				return
 			}
 			pendingFrames = 0
@@ -274,10 +264,11 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 			case "error":
 				var apiErr apiError
 				_ = json.Unmarshal(msg.Error, &apiErr)
-				// Non-fatal: bad session param or empty commit (VAD already consumed buffer).
+				// Non-fatal: session config warnings, VAD edge cases, response race.
 				if apiErr.Code == "unknown_parameter" ||
 					apiErr.Code == "invalid_value" ||
-					apiErr.Code == "input_audio_buffer_commit_empty" {
+					apiErr.Code == "input_audio_buffer_commit_empty" ||
+					apiErr.Code == "conversation_already_has_active_response" {
 					slog.Warn("openai_realtime_session_warning", "detail", string(msg.Error))
 					continue
 				}
@@ -289,8 +280,11 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 				switch msg.Type {
 				case "session.created":
 					slog.Info("openai_session_ready", "direction", label)
+				case "response.created":
+					responseActive.Store(true)
+				case "response.done":
+					responseActive.Store(false)
 				case "session.updated",
-					"response.created", "response.done",
 					"response.output_audio.done",
 					"conversation.item.added", "conversation.item.done",
 					"input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped",

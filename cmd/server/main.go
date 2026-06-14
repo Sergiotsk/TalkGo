@@ -16,7 +16,6 @@ import (
 	httpserver "github.com/Sergiotsk/TalkGo/internal/adapters/http"
 	"github.com/Sergiotsk/TalkGo/internal/adapters/signaling"
 	"github.com/Sergiotsk/TalkGo/internal/adapters/translator"
-	"github.com/Sergiotsk/TalkGo/internal/adapters/tts"
 	webrtcadapter "github.com/Sergiotsk/TalkGo/internal/adapters/webrtc"
 	"github.com/Sergiotsk/TalkGo/internal/app/roomsvc"
 	"github.com/Sergiotsk/TalkGo/internal/ports/driven"
@@ -189,9 +188,8 @@ func run() int {
 	wsLimiter.StartCleanup(ctx, 5*time.Minute)
 
 	repo := roomsvc.NewInMemoryRoomRepository()
-	tr := translator.NewOpenAIRealtimeTranslator(translator.OpenAIRealtimeConfig{
+	tr := translator.NewPipelineTranslator(translator.PipelineTranslatorConfig{
 		APIKey: appCfg.OpenAIAPIKey,
-		// Model uses default: gpt-4o-realtime-preview-2024-12-17 (GA)
 	})
 
 	// Service configuration
@@ -212,9 +210,6 @@ func run() int {
 		slog.Error("service_creation_failed", "component", "main", slog.Any("err", err))
 		return 1
 	}
-	svc.WithTTS(tts.NewOpenAITTS(tts.Config{
-		APIKey: appCfg.OpenAIAPIKey,
-	}))
 
 	// Complete the circular wire: give hub its SignalingHandler.
 	hub.SetHandler(svc)
