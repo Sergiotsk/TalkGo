@@ -108,10 +108,12 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 	sessionPayload, err := json.Marshal(sessionUpdate{
 		Type: "realtime",
 		Instructions: fmt.Sprintf(
-			"You are a real-time speech translator. Your ONLY task is to listen to speech in %s and immediately speak the translation in %s. "+
-				"NEVER respond as an AI assistant. NEVER greet, acknowledge, or chat. NEVER speak in %s. "+
-				"ONLY output the spoken translation in %s. If you hear noise or silence, stay silent.",
-			sourceLang, targetLang, sourceLang, targetLang,
+			"You are a simultaneous interpreter. INPUT language: %s. OUTPUT language: %s. "+
+				"RULES: (1) Translate ONLY what you hear — word for word, meaning for meaning. "+
+				"(2) Output ONLY in %s. NEVER speak %s. NEVER add greetings, comments, or acknowledgements. "+
+				"(3) If you hear silence or noise with no speech, output nothing. "+
+				"(4) Do NOT act as an assistant. Do NOT answer questions. ONLY translate.",
+			sourceLang, targetLang, targetLang, sourceLang,
 		),
 		TurnDetection: turnDetection{
 			Type:              "server_vad",
@@ -272,8 +274,10 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 			case "error":
 				var apiErr apiError
 				_ = json.Unmarshal(msg.Error, &apiErr)
-				// Non-fatal: bad session param — session stays alive, log and continue.
-				if apiErr.Code == "unknown_parameter" || apiErr.Code == "invalid_value" {
+				// Non-fatal: bad session param or empty commit (VAD already consumed buffer).
+				if apiErr.Code == "unknown_parameter" ||
+					apiErr.Code == "invalid_value" ||
+					apiErr.Code == "input_audio_buffer_commit_empty" {
 					slog.Warn("openai_realtime_session_warning", "detail", string(msg.Error))
 					continue
 				}
