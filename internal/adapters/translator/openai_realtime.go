@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultModel   = "gpt-audio-2025-08-28"
+	defaultModel   = "gpt-realtime-mini-2025-10-06"
 	defaultBaseURL = "wss://api.openai.com/v1/realtime"
 )
 
