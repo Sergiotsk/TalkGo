@@ -52,6 +52,7 @@ type wsMessage struct {
 	Session json.RawMessage `json:"session,omitempty"`
 	Audio   string          `json:"audio,omitempty"`
 	Delta   string          `json:"delta,omitempty"`
+	Error   json.RawMessage `json:"error,omitempty"`
 }
 
 // sessionUpdate is the payload for session.update messages.
@@ -176,6 +177,9 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 					}
 					transcriptBuf = ""
 				}
+			case "error":
+				slog.Error("openai_realtime_error", "detail", string(msg.Error))
+				return
 			default:
 				// Log unexpected event types to diagnose missing transcripts.
 				if msg.Type != "session.created" && msg.Type != "session.updated" &&
