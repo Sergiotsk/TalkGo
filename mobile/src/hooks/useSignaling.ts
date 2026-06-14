@@ -80,6 +80,7 @@ export function useSignaling(config: UseSignalingConfig): UseSignalingReturn {
           cb.onError(msg.message ?? 'Unknown error');
           break;
         case 'transcript':
+          console.log('[Signaling] transcript received:', msg.text);
           cb.onTranscript?.(msg.text ?? '');
           break;
         default:

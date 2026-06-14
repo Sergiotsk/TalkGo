@@ -121,6 +121,9 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 	audioCh := make(chan []byte, 8)
 	transcriptCh := make(chan string, 4)
 
+	label := fmt.Sprintf("%s→%s", sourceLang, targetLang)
+	slog.Info("openai_realtime_connected", "direction", label)
+
 	// senderDone signals the receiver that no more audio will be written.
 	var receiverDone sync.WaitGroup
 	receiverDone.Add(1)
@@ -136,6 +139,7 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 			conn.Close()
 		}()
 
+		sentFrames := 0
 		for {
 			select {
 			case <-ctx.Done():
@@ -143,6 +147,10 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 			case frame, ok := <-audioIn:
 				if !ok {
 					return
+				}
+				sentFrames++
+				if sentFrames == 1 || sentFrames%500 == 0 {
+					slog.Info("openai_audio_sending", "direction", label, "frame", sentFrames, "bytes", len(frame))
 				}
 				msg := wsMessage{
 					Type:  "input_audio_buffer.append",
@@ -239,7 +247,9 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 			default:
 				// Silence known no-op events; log anything unexpected.
 				switch msg.Type {
-				case "session.created", "session.updated",
+				case "session.created":
+					slog.Info("openai_session_ready", "direction", label)
+				case "session.updated",
 					"response.created", "response.done",
 					"response.output_audio.done",
 					"conversation.item.added", "conversation.item.done",
