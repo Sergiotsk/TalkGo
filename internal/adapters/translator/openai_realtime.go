@@ -151,7 +151,7 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 				return
 			}
 			switch msg.Type {
-			case "response.audio.delta":
+			case "response.output_audio.delta":
 				if msg.Delta == "" {
 					continue
 				}
@@ -164,9 +164,9 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 				case <-ctx.Done():
 					return
 				}
-			case "response.audio_transcript.delta":
+			case "response.output_audio_transcript.delta":
 				transcriptBuf += msg.Delta
-			case "response.audio_transcript.done":
+			case "response.output_audio_transcript.done":
 				if transcriptBuf != "" {
 					select {
 					case transcriptCh <- transcriptBuf:
@@ -178,14 +178,16 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 				slog.Error("openai_realtime_error", "detail", string(msg.Error))
 				return
 			default:
-				// Log unexpected event types to diagnose missing transcripts.
-				if msg.Type != "session.created" && msg.Type != "session.updated" &&
-					msg.Type != "response.created" && msg.Type != "response.done" &&
-					msg.Type != "response.output_item.added" && msg.Type != "response.output_item.done" &&
-					msg.Type != "response.content_part.added" && msg.Type != "response.content_part.done" &&
-					msg.Type != "input_audio_buffer.speech_started" && msg.Type != "input_audio_buffer.speech_stopped" &&
-					msg.Type != "input_audio_buffer.committed" && msg.Type != "rate_limits.updated" &&
-					msg.Type != "conversation.item.created" {
+				// Silence known no-op events; log anything unexpected.
+				switch msg.Type {
+				case "session.created", "session.updated",
+					"response.created", "response.done",
+					"response.output_audio.done",
+					"conversation.item.added", "conversation.item.done",
+					"input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped",
+					"input_audio_buffer.committed", "rate_limits.updated":
+					// expected — ignore
+				default:
 					slog.Info("openai_realtime_event", "type", msg.Type)
 				}
 			}
