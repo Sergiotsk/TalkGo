@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	defaultModel   = "gpt-4o-realtime-preview"
+	defaultModel   = "gpt-4o-realtime-preview-2024-12-17"
 	defaultBaseURL = "wss://api.openai.com/v1/realtime"
 )
 
@@ -74,7 +74,6 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+t.cfg.APIKey)
-	headers.Set("OpenAI-Beta", "realtime=v1")
 
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.DialContext(ctx, url, headers)
