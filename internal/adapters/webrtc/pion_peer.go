@@ -41,6 +41,7 @@ type PionPeer struct {
 	peers            map[string]*pionwebrtc.PeerConnection
 	localTracks      map[string]*pionwebrtc.TrackLocalStaticRTP     // sessionID -> outbound track
 	audioHandlers    map[string]audioHandler                        // sessionID -> registered inbound handler
+	rawTracks        map[string]chan []byte                         // sessionID -> live audio channel (set when OnTrack fires)
 	iceStateHandlers map[string]func(pionwebrtc.ICEConnectionState) // sessionID -> ICE state handler (for testing)
 	mu               sync.RWMutex
 
@@ -61,6 +62,7 @@ func NewPionPeer(cfg Config) *PionPeer {
 		peers:            make(map[string]*pionwebrtc.PeerConnection),
 		localTracks:      make(map[string]*pionwebrtc.TrackLocalStaticRTP),
 		audioHandlers:    make(map[string]audioHandler),
+		rawTracks:        make(map[string]chan []byte),
 		iceStateHandlers: make(map[string]func(pionwebrtc.ICEConnectionState)),
 	}
 }
@@ -107,35 +109,39 @@ func (p *PionPeer) CreateSession(_ context.Context, sessionID string) error {
 	}
 
 	// OnTrack dispatches inbound audio to the registered handler for this session.
+	// audioCh is stored in rawTracks so OnAudioTrack can fire the handler even if
+	// it registers AFTER OnTrack fires (race condition fix).
 	pc.OnTrack(func(remoteTrack *pionwebrtc.TrackRemote, _ *pionwebrtc.RTPReceiver) {
-		p.mu.RLock()
-		h, hasHandler := p.audioHandlers[sessionID]
-		p.mu.RUnlock()
-
 		audioCh := make(chan []byte, 32)
 
+		p.mu.Lock()
+		p.rawTracks[sessionID] = audioCh
+		h, hasHandler := p.audioHandlers[sessionID]
+		p.mu.Unlock()
+
 		go func() {
-			defer close(audioCh)
+			defer func() {
+				close(audioCh)
+				p.mu.Lock()
+				delete(p.rawTracks, sessionID)
+				p.mu.Unlock()
+			}()
 			buf := make([]byte, 1500)
 			for {
 				n, _, readErr := remoteTrack.Read(buf)
 				if readErr != nil {
 					return
 				}
-				if hasHandler {
-					select {
-					case audioCh <- append([]byte(nil), buf[:n]...):
-					case <-h.ctx.Done():
-						return
-					default:
-						// Drop frame if buffer full — backpressure handled upstream.
-					}
+				select {
+				case audioCh <- append([]byte(nil), buf[:n]...):
+				default:
+					// Drop frame if buffer full — backpressure handled upstream.
 				}
 			}
 		}()
 
 		if hasHandler {
-			h.fn(audioCh)
+			go h.fn(audioCh)
 		}
 	})
 
@@ -171,6 +177,7 @@ func (p *PionPeer) CloseSession(_ context.Context, sessionID string) error {
 	delete(p.peers, sessionID)
 	delete(p.localTracks, sessionID)
 	delete(p.audioHandlers, sessionID)
+	delete(p.rawTracks, sessionID)
 	delete(p.iceStateHandlers, sessionID)
 
 	if err := pc.Close(); err != nil {
@@ -275,10 +282,16 @@ func (p *PionPeer) ConnectionState(_ context.Context, sessionID string) (driven.
 // OnAudioTrack registers a handler that receives inbound Opus frames from the peer's media track.
 // The handler is called with a read-only channel of RTP payloads. The channel is closed
 // when the track ends or ctx is cancelled.
+// If OnTrack already fired before this call, the handler is invoked immediately with the live channel.
 func (p *PionPeer) OnAudioTrack(ctx context.Context, sessionID string, handler func(<-chan []byte)) error {
 	p.mu.Lock()
 	p.audioHandlers[sessionID] = audioHandler{fn: handler, ctx: ctx}
+	ch, trackReady := p.rawTracks[sessionID]
 	p.mu.Unlock()
+
+	if trackReady {
+		go handler(ch)
+	}
 	return nil
 }
 
