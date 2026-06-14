@@ -53,6 +53,15 @@ type wsMessage struct {
 	Audio   string          `json:"audio,omitempty"`
 	Delta   string          `json:"delta,omitempty"`
 	Error   json.RawMessage `json:"error,omitempty"`
+	Part    json.RawMessage `json:"part,omitempty"`
+}
+
+// contentPart is the shape of the "part" field in response.content_part.done.
+type contentPart struct {
+	Type       string `json:"type"`
+	Audio      string `json:"audio"`
+	Transcript string `json:"transcript"`
+	Text       string `json:"text"`
 }
 
 // apiError is the shape of the "error" payload from OpenAI.
@@ -156,6 +165,7 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 				return
 			}
 			switch msg.Type {
+			// Streaming audio path (gpt-4o-realtime and similar).
 			case "response.output_audio.delta":
 				if msg.Delta == "" {
 					continue
@@ -178,6 +188,37 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 					default:
 					}
 					transcriptBuf = ""
+				}
+			// Batch audio path (gpt-realtime): full audio packed in content_part.done.
+			case "response.content_part.done":
+				if len(msg.Part) == 0 {
+					continue
+				}
+				var part contentPart
+				if err := json.Unmarshal(msg.Part, &part); err != nil {
+					slog.Warn("openai_realtime: failed to parse content_part", "err", err)
+					continue
+				}
+				slog.Info("openai_realtime_content_part", "type", part.Type, "audio_len", len(part.Audio), "transcript", part.Transcript)
+				if part.Audio != "" {
+					decoded, err := base64.StdEncoding.DecodeString(part.Audio)
+					if err == nil && len(decoded) > 0 {
+						select {
+						case audioCh <- decoded:
+						case <-ctx.Done():
+							return
+						}
+					}
+				}
+				text := part.Transcript
+				if text == "" {
+					text = part.Text
+				}
+				if text != "" {
+					select {
+					case transcriptCh <- text:
+					default:
+					}
 				}
 			case "error":
 				var apiErr apiError
