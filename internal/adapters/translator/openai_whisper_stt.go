@@ -14,20 +14,27 @@ import (
 )
 
 const (
-	defaultWhisperModel   = "gpt-realtime-whisper"
-	defaultWhisperBaseURL = "wss://api.openai.com/v1/realtime"
+	// defaultSessionModel is the realtime session model used in the WebSocket URL.
+	// gpt-realtime-whisper is passed as the transcription model inside session.update.
+	defaultSessionModel       = "gpt-realtime"
+	defaultTranscriptionModel = "gpt-realtime-whisper"
+	defaultWhisperBaseURL     = "wss://api.openai.com/v1/realtime"
 )
 
 // WhisperSTTConfig holds configuration for the Whisper STT adapter.
 type WhisperSTTConfig struct {
-	APIKey  string
-	Model   string // default: gpt-realtime-whisper
-	BaseURL string // default: wss://api.openai.com/v1/realtime
+	APIKey             string
+	SessionModel       string // realtime session model for URL — default: gpt-realtime
+	TranscriptionModel string // transcription model in session.update — default: gpt-realtime-whisper
+	BaseURL            string // default: wss://api.openai.com/v1/realtime
 }
 
 func (c *WhisperSTTConfig) applyDefaults() {
-	if c.Model == "" {
-		c.Model = defaultWhisperModel
+	if c.SessionModel == "" {
+		c.SessionModel = defaultSessionModel
+	}
+	if c.TranscriptionModel == "" {
+		c.TranscriptionModel = defaultTranscriptionModel
 	}
 	if c.BaseURL == "" {
 		c.BaseURL = defaultWhisperBaseURL
@@ -89,7 +96,7 @@ type sttTranscription struct {
 // a channel of final transcript strings. The channel is closed when audioIn
 // is exhausted or ctx is cancelled.
 func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang string) (<-chan string, error) {
-	url := fmt.Sprintf("%s?model=%s", w.cfg.BaseURL, w.cfg.Model)
+	url := fmt.Sprintf("%s?model=%s", w.cfg.BaseURL, w.cfg.SessionModel)
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+w.cfg.APIKey)
@@ -110,7 +117,7 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 					Rate: 24000,
 				},
 				Transcription: sttTranscription{
-					Model:    w.cfg.Model,
+					Model:    w.cfg.TranscriptionModel,
 					Language: lang,
 				},
 			},
