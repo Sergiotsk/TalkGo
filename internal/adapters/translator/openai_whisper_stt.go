@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	// defaultSessionModel is the realtime session model used in the WebSocket URL.
-	// gpt-realtime-whisper is passed as the transcription model inside session.update.
-	defaultSessionModel       = "gpt-realtime"
+	// defaultSessionModel is used in the WebSocket URL — gpt-realtime-whisper goes here too.
+	// The transcription session type is signaled via session.update, not the URL model.
+	defaultSessionModel       = "gpt-realtime-whisper"
 	defaultTranscriptionModel = "gpt-realtime-whisper"
 	defaultWhisperBaseURL     = "wss://api.openai.com/v1/realtime"
 )
@@ -68,8 +68,8 @@ type sttTranscript struct {
 }
 
 // sttSessionPayload is the nested session config for gpt-realtime-whisper.
+// Type is omitted — the transcription session type is inferred from the model in the URL.
 type sttSessionPayload struct {
-	Type  string    `json:"type"`
 	Audio *sttAudio `json:"audio"`
 }
 
@@ -109,7 +109,6 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 
 	// Send session.update with transcription config.
 	sessionPayload, err := json.Marshal(sttSessionPayload{
-		Type: "transcription",
 		Audio: &sttAudio{
 			Input: sttInput{
 				Format: sttFormat{
