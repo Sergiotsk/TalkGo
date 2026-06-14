@@ -56,8 +56,12 @@ type wsMessage struct {
 }
 
 // sessionUpdate is the payload for session.update messages.
+// For gpt-realtime-translate the session requires a "type" field and
+// uses input_language / output_language instead of instructions.
 type sessionUpdate struct {
-	Instructions      string `json:"instructions"`
+	Type              string `json:"type"`
+	InputLanguage     string `json:"input_language"`
+	OutputLanguage    string `json:"output_language"`
 	InputAudioFormat  string `json:"input_audio_format"`
 	OutputAudioFormat string `json:"output_audio_format"`
 }
@@ -83,7 +87,9 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 
 	// Send session.update to configure translation behaviour.
 	sessionPayload, err := json.Marshal(sessionUpdate{
-		Instructions:      fmt.Sprintf("Translate from %s to %s. Output only the translation.", sourceLang, targetLang),
+		Type:              "translation",
+		InputLanguage:     sourceLang,
+		OutputLanguage:    targetLang,
 		InputAudioFormat:  "pcm16",
 		OutputAudioFormat: "pcm16",
 	})
