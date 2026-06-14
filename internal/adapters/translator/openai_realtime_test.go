@@ -33,7 +33,7 @@ type wsMessage struct {
 //  1. Upgrades the connection to WebSocket.
 //  2. Reads session.update (ignored — just consumed).
 //  3. For each input_audio_buffer.append it receives, sends back a
-//     response.audio.delta with the same base64-encoded payload (echo).
+//     response.output_audio.delta with the same base64-encoded payload (echo).
 func newEchoServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +56,7 @@ func newEchoServer(t *testing.T) *httptest.Server {
 				// Nothing to echo — just consume.
 			case "input_audio_buffer.append":
 				reply := wsMessage{
-					Type:  "response.audio.delta",
+					Type:  "response.output_audio.delta",
 					Delta: msg.Audio, // echo the same base64 payload
 				}
 				if err := conn.WriteJSON(reply); err != nil {
