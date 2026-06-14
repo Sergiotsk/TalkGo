@@ -101,7 +101,6 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+w.cfg.APIKey)
-	headers.Set("OpenAI-Beta", "realtime=v1")
 
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.DialContext(ctx, url, headers)
