@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	// defaultSessionModel is used in the WebSocket URL — gpt-realtime-whisper goes here too.
-	// The transcription session type is signaled via session.update, not the URL model.
+	// defaultSessionModel is the model param in the WebSocket URL.
+	// ?intent=transcription activates transcription mode — allows type:"transcription" in session.update.
 	defaultSessionModel       = "gpt-realtime-whisper"
 	defaultTranscriptionModel = "gpt-realtime-whisper"
-	defaultWhisperBaseURL     = "wss://api.openai.com/v1/realtime/transcription"
+	defaultWhisperBaseURL     = "wss://api.openai.com/v1/realtime"
 )
 
 // WhisperSTTConfig holds configuration for the Whisper STT adapter.
@@ -68,8 +68,9 @@ type sttTranscript struct {
 }
 
 // sttSessionPayload is the nested session config for gpt-realtime-whisper.
-// Type is omitted — the transcription session type is inferred from the model in the URL.
+// Type:"transcription" is required when connecting with ?intent=transcription.
 type sttSessionPayload struct {
+	Type  string    `json:"type"`
 	Audio *sttAudio `json:"audio"`
 }
 
@@ -96,10 +97,11 @@ type sttTranscription struct {
 // a channel of final transcript strings. The channel is closed when audioIn
 // is exhausted or ctx is cancelled.
 func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang string) (<-chan string, error) {
-	url := fmt.Sprintf("%s?model=%s", w.cfg.BaseURL, w.cfg.SessionModel)
+	url := fmt.Sprintf("%s?model=%s&intent=transcription", w.cfg.BaseURL, w.cfg.SessionModel)
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+w.cfg.APIKey)
+	headers.Set("OpenAI-Beta", "realtime=v1")
 
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.DialContext(ctx, url, headers)
@@ -109,6 +111,7 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 
 	// Send session.update with transcription config.
 	sessionPayload, err := json.Marshal(sttSessionPayload{
+		Type: "transcription",
 		Audio: &sttAudio{
 			Input: sttInput{
 				Format: sttFormat{
