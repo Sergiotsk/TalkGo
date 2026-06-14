@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -15,7 +16,7 @@ import (
 )
 
 const (
-	defaultModel   = "gpt-realtime"
+	defaultModel   = "gpt-audio-2025-08-28"
 	defaultBaseURL = "wss://api.openai.com/v1/realtime"
 )
 
@@ -69,10 +70,19 @@ type apiError struct {
 	Code string `json:"code"`
 }
 
+// turnDetection configures server-side VAD for the session.
+type turnDetection struct {
+	Type              string `json:"type"`
+	Threshold         float64 `json:"threshold"`
+	PrefixPaddingMs   int    `json:"prefix_padding_ms"`
+	SilenceDurationMs int    `json:"silence_duration_ms"`
+}
+
 // sessionUpdate is the payload for session.update messages.
 type sessionUpdate struct {
-	Type         string `json:"type"`
-	Instructions string `json:"instructions"`
+	Type          string        `json:"type"`
+	Instructions  string        `json:"instructions"`
+	TurnDetection turnDetection `json:"turn_detection"`
 }
 
 // TranslateStream connects to the OpenAI Realtime API and streams translated audio and transcripts.
@@ -103,6 +113,12 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 				"ONLY output the spoken translation in %s. If you hear noise or silence, stay silent.",
 			sourceLang, targetLang, sourceLang, targetLang,
 		),
+		TurnDetection: turnDetection{
+			Type:              "server_vad",
+			Threshold:         0.5,
+			PrefixPaddingMs:   200,
+			SilenceDurationMs: 300, // trigger translation after 300ms of silence (default ~500ms)
+		},
 	})
 	if err != nil {
 		conn.Close()
@@ -129,6 +145,8 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 	receiverDone.Add(1)
 
 	// Sender goroutine: drain audioIn and forward frames to the WebSocket.
+	// Every 2 s we force a commit + response.create so fast continuous speech
+	// is translated in chunks rather than waiting for a VAD-detected silence.
 	go func() {
 		defer func() {
 			_ = conn.WriteMessage(
@@ -139,16 +157,34 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 			conn.Close()
 		}()
 
+		commitTicker := time.NewTicker(5 * time.Second)
+		defer commitTicker.Stop()
+
 		sentFrames := 0
+		pendingFrames := 0 // frames appended since last commit
+
+		commit := func() {
+			if pendingFrames == 0 {
+				return
+			}
+			pendingFrames = 0
+			_ = conn.WriteJSON(map[string]string{"type": "input_audio_buffer.commit"})
+			_ = conn.WriteJSON(map[string]string{"type": "response.create"})
+		}
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case <-commitTicker.C:
+				commit()
 			case frame, ok := <-audioIn:
 				if !ok {
+					commit()
 					return
 				}
 				sentFrames++
+				pendingFrames++
 				if sentFrames == 1 || sentFrames%500 == 0 {
 					slog.Info("openai_audio_sending", "direction", label, "frame", sentFrames, "bytes", len(frame))
 				}
