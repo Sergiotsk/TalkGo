@@ -57,9 +57,9 @@ type wsMessage struct {
 
 // sessionUpdate is the payload for session.update messages.
 type sessionUpdate struct {
-	Type         string   `json:"type"`
-	Modalities   []string `json:"modalities"`
-	Instructions string   `json:"instructions"`
+	Type         string `json:"type"`
+	Voice        string `json:"voice"`
+	Instructions string `json:"instructions"`
 }
 
 // TranslateStream connects to the OpenAI Realtime API and streams translated audio and transcripts.
@@ -84,7 +84,7 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 	// Send session.update to configure translation behaviour.
 	sessionPayload, err := json.Marshal(sessionUpdate{
 		Type:         "realtime",
-		Modalities:   []string{"audio", "text"},
+		Voice:        "alloy",
 		Instructions: fmt.Sprintf("Translate from %s to %s. Output only the translation.", sourceLang, targetLang),
 	})
 	if err != nil {
