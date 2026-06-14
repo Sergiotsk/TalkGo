@@ -55,10 +55,14 @@ type wsMessage struct {
 	Error   json.RawMessage `json:"error,omitempty"`
 }
 
+// apiError is the shape of the "error" payload from OpenAI.
+type apiError struct {
+	Code string `json:"code"`
+}
+
 // sessionUpdate is the payload for session.update messages.
 type sessionUpdate struct {
 	Type         string `json:"type"`
-	Voice        string `json:"voice"`
 	Instructions string `json:"instructions"`
 }
 
@@ -84,7 +88,6 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 	// Send session.update to configure translation behaviour.
 	sessionPayload, err := json.Marshal(sessionUpdate{
 		Type:         "realtime",
-		Voice:        "alloy",
 		Instructions: fmt.Sprintf("Translate from %s to %s. Output only the translation.", sourceLang, targetLang),
 	})
 	if err != nil {
@@ -177,6 +180,14 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 					transcriptBuf = ""
 				}
 			case "error":
+				var apiErr apiError
+				_ = json.Unmarshal(msg.Error, &apiErr)
+				// Non-fatal: bad session param — session stays alive, log and continue.
+				if apiErr.Code == "unknown_parameter" || apiErr.Code == "invalid_value" {
+					slog.Warn("openai_realtime_session_warning", "detail", string(msg.Error))
+					continue
+				}
+				// Fatal: auth failure, quota exceeded, etc.
 				slog.Error("openai_realtime_error", "detail", string(msg.Error))
 				return
 			default:
