@@ -309,10 +309,12 @@ func (p *PionPeer) SendAudio(ctx context.Context, sessionID string, audio <-chan
 
 	var timestamp uint32
 	var seqNum uint16
+	packetsSent := 0
 	for {
 		select {
 		case frame, open := <-audio:
 			if !open {
+				slog.Info("webrtc_send_audio_done", "session", sessionID, "packets_sent", packetsSent)
 				return nil
 			}
 			if err := track.WriteRTP(&pionrtp.Packet{
@@ -328,6 +330,10 @@ func (p *PionPeer) SendAudio(ctx context.Context, sessionID string, audio <-chan
 				return fmt.Errorf("webrtc.SendAudio: write: %w", err)
 			}
 			seqNum++
+			packetsSent++
+			if packetsSent == 1 {
+				slog.Info("webrtc_rtp_first_packet", "session", sessionID, "seq", seqNum-1, "bytes", len(frame))
+			}
 			timestamp += 960 // 20ms at 48kHz
 		case <-ctx.Done():
 			return nil
