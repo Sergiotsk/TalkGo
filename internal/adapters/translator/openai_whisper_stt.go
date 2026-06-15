@@ -15,7 +15,8 @@ import (
 
 const (
 	// defaultTranscriptionModel is the model used in session.update input_audio_transcription.
-	defaultTranscriptionModel = "gpt-realtime-whisper"
+	// gpt-4o-transcribe is the GA model for the ?intent=transcription endpoint.
+	defaultTranscriptionModel = "gpt-4o-transcribe"
 	defaultWhisperBaseURL     = "wss://api.openai.com/v1/realtime"
 )
 
@@ -61,7 +62,6 @@ type sttMessage struct {
 // Used with ?intent=transcription endpoint — same session schema as regular realtime.
 type sttSessionPayload struct {
 	Type                    string              `json:"type"` // "transcription"
-	InputAudioFormat        string              `json:"input_audio_format"`
 	InputAudioTranscription sttTranscriptionCfg `json:"input_audio_transcription"`
 	TurnDetection           sttTurnDetection    `json:"turn_detection"`
 }
@@ -93,8 +93,7 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 	// Send session.update with transcription config.
 	// pcm16 = PCM 16-bit signed LE — matches what OpusCodec decodes to at 24kHz.
 	sessionPayload, err := json.Marshal(sttSessionPayload{
-		Type:             "transcription",
-		InputAudioFormat: "pcm16",
+		Type: "transcription",
 		InputAudioTranscription: sttTranscriptionCfg{
 			Model:    w.cfg.TranscriptionModel,
 			Language: lang,
