@@ -92,24 +92,36 @@ func (t *OpenAITTS) Synthesize(ctx context.Context, text, lang string) (<-chan [
 		return nil, fmt.Errorf("tts: api error %d: %s", resp.StatusCode, string(body))
 	}
 
-	out := make(chan []byte, 1)
+	out := make(chan []byte, 8)
 	go func() {
 		defer close(out)
 		defer resp.Body.Close()
 
-		pcm, err := io.ReadAll(resp.Body)
-		if err != nil {
-			slog.Warn("tts: read response body", "err", err)
-			return
-		}
-		if len(pcm) == 0 {
-			slog.Warn("tts: empty response body")
-			return
-		}
-		slog.Info("tts_synthesized", "lang", lang, "text_len", len(text), "pcm_bytes", len(pcm))
-		select {
-		case out <- pcm:
-		case <-ctx.Done():
+		// Stream PCM in ~3840-byte chunks (2 Opus frames at 24kHz/16-bit/mono).
+		// This lets audio start playing while TTS is still synthesizing, cutting
+		// perceived latency from "full synthesis time" to "time to first chunk".
+		buf := make([]byte, 3840)
+		totalBytes := 0
+		for {
+			n, readErr := resp.Body.Read(buf)
+			if n > 0 {
+				totalBytes += n
+				chunk := make([]byte, n)
+				copy(chunk, buf[:n])
+				select {
+				case out <- chunk:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if readErr == io.EOF {
+				slog.Info("tts_synthesized", "lang", lang, "text_len", len(text), "pcm_bytes", totalBytes)
+				return
+			}
+			if readErr != nil {
+				slog.Warn("tts: read stream", "err", readErr)
+				return
+			}
 		}
 	}()
 

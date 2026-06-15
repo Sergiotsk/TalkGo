@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	defaultTranslateModel   = "gpt-4o"
+	// gpt-4o-mini is ~3x faster than gpt-4o for conversational translation
+	// with negligible quality difference for short phrases.
+	defaultTranslateModel   = "gpt-4o-mini"
 	defaultTranslateBaseURL = "https://api.openai.com/v1/chat/completions"
 )
 
