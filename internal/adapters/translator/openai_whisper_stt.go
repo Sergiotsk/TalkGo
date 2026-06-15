@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	// defaultTranscriptionModel is the model used in session.update input_audio_transcription.
-	// gpt-4o-transcribe is the GA model for the ?intent=transcription endpoint.
-	defaultTranscriptionModel = "gpt-4o-transcribe"
+	// defaultTranscriptionModel is the model used in session.update audio.input.transcription.
+	// Using gpt-4o-mini-transcribe — the project has access to this model.
+	defaultTranscriptionModel = "gpt-4o-mini-transcribe"
 	defaultWhisperBaseURL     = "wss://api.openai.com/v1/realtime"
 )
 
