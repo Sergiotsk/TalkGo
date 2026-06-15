@@ -97,17 +97,13 @@ func (p *PionPeer) CreateSession(_ context.Context, sessionID string) error {
 		return fmt.Errorf("webrtc.CreateSession: create local track: %w", err)
 	}
 
+	// AddTrack creates a sendrecv transceiver: the local track carries TTS audio
+	// to the client, and the same transceiver receives the client's mic audio.
+	// No second transceiver is needed — it would add a spurious m=audio line to
+	// the SDP that confuses clients expecting a single audio section.
 	if _, err := pc.AddTrack(track); err != nil {
 		_ = pc.Close()
 		return fmt.Errorf("webrtc.CreateSession: add track: %w", err)
-	}
-
-	_, err = pc.AddTransceiverFromKind(pionwebrtc.RTPCodecTypeAudio, pionwebrtc.RTPTransceiverInit{
-		Direction: pionwebrtc.RTPTransceiverDirectionSendrecv,
-	})
-	if err != nil {
-		_ = pc.Close()
-		return fmt.Errorf("webrtc.CreateSession: adding audio transceiver: %w", err)
 	}
 
 	// OnTrack dispatches inbound audio to the registered handler for this session.
