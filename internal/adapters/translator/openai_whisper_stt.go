@@ -58,15 +58,29 @@ type sttMessage struct {
 	Transcript string          `json:"transcript,omitempty"` // plain string, not nested object
 }
 
-// sttSessionPayload matches the realtime session.update format.
-// Used with ?intent=transcription endpoint — same session schema as regular realtime.
+// sttSessionPayload is the nested config for ?intent=transcription sessions.
+// Structure: session → audio → input → {format, transcription, turn_detection}
 type sttSessionPayload struct {
-	Type                    string              `json:"type"` // "transcription"
-	InputAudioTranscription sttTranscriptionCfg `json:"input_audio_transcription"`
-	TurnDetection           sttTurnDetection    `json:"turn_detection"`
+	Type  string    `json:"type"` // "transcription"
+	Audio *sttAudio `json:"audio"`
 }
 
-type sttTranscriptionCfg struct {
+type sttAudio struct {
+	Input sttInput `json:"input"`
+}
+
+type sttInput struct {
+	Format        sttFormat        `json:"format"`
+	Transcription sttTranscription `json:"transcription"`
+	TurnDetection sttTurnDetection `json:"turn_detection"`
+}
+
+type sttFormat struct {
+	Type string `json:"type"`
+	Rate int    `json:"rate"`
+}
+
+type sttTranscription struct {
 	Model    string `json:"model"`
 	Language string `json:"language,omitempty"`
 }
@@ -94,11 +108,16 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 	// pcm16 = PCM 16-bit signed LE — matches what OpusCodec decodes to at 24kHz.
 	sessionPayload, err := json.Marshal(sttSessionPayload{
 		Type: "transcription",
-		InputAudioTranscription: sttTranscriptionCfg{
-			Model:    w.cfg.TranscriptionModel,
-			Language: lang,
+		Audio: &sttAudio{
+			Input: sttInput{
+				Format: sttFormat{Type: "audio/pcm", Rate: 24000},
+				Transcription: sttTranscription{
+					Model:    w.cfg.TranscriptionModel,
+					Language: lang,
+				},
+				TurnDetection: sttTurnDetection{Type: "server_vad"},
+			},
 		},
-		TurnDetection: sttTurnDetection{Type: "server_vad"},
 	})
 	if err != nil {
 		conn.Close()
