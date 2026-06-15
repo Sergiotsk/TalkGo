@@ -196,7 +196,7 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 				// Partial transcript — not forwarded; completed events are used for quality.
 
 			case "conversation.item.input_audio_transcription.completed":
-				if msg.Transcript != "" {
+				if len([]rune(msg.Transcript)) >= 3 {
 					slog.Info("whisper_transcript", "lang", lang, "text", msg.Transcript)
 					select {
 					case transcriptCh <- msg.Transcript:
