@@ -187,21 +187,15 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 			if ctx.Err() != nil {
 				return
 			}
-			var raw json.RawMessage
-			if err := conn.ReadJSON(&raw); err != nil {
-				return
-			}
 			var msg sttMessage
-			if err := json.Unmarshal(raw, &msg); err != nil {
+			if err := conn.ReadJSON(&msg); err != nil {
 				return
 			}
 			switch msg.Type {
 			case "conversation.item.input_audio_transcription.delta":
 				// Partial transcript — not forwarded; completed events are used for quality.
-				slog.Debug("whisper_stt_delta_raw", "json", string(raw))
 
 			case "conversation.item.input_audio_transcription.completed":
-				slog.Info("whisper_stt_completed_raw", "json", string(raw))
 				if msg.Transcript != "" {
 					slog.Info("whisper_transcript", "lang", lang, "text", msg.Transcript)
 					select {
@@ -229,12 +223,13 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 					"input_audio_buffer.speech_started",
 					"input_audio_buffer.speech_stopped",
 					"input_audio_buffer.committed",
-					"conversation.item.created":
-					// expected — ignore
-				case "conversation.item.done":
-					slog.Info("whisper_stt_item_done_raw", "json", string(raw))
+					"conversation.item.created",
+					"conversation.item.added",
+					"conversation.item.done",
+					"conversation.item.input_audio_transcription.failed":
+				// expected — ignore
 				default:
-					slog.Info("whisper_stt_event", "type", msg.Type, "json", string(raw))
+					slog.Info("whisper_stt_event", "type", msg.Type)
 				}
 			}
 		}
