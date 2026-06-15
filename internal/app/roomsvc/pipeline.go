@@ -243,6 +243,7 @@ func (s *Service) runHalf(ctx context.Context, p *pipeline, half *pipelineHalf) 
 	// Stage 5: Send
 	tracker.StartStage(StageSend)
 	if err := s.peer.SendAudio(ctx, half.targetSessID, opusOutCh); err != nil {
+		slog.Warn("send_audio_error", "dir", half.dir, "target", half.targetSessID, "err", err)
 		half.errorChunks.Add(int64(frameCount))
 		tracker.Emit(ctx, half.dir, roomID, "error")
 		s.notifier.NotifySession(half.targetSessID, "error", map[string]string{

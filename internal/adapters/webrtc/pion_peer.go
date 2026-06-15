@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	pionrtp "github.com/pion/rtp"
 	pionwebrtc "github.com/pion/webrtc/v3"
@@ -308,37 +309,55 @@ func (p *PionPeer) SendAudio(ctx context.Context, sessionID string, audio <-chan
 		return fmt.Errorf("webrtc.SendAudio: no track for session %s", sessionID)
 	}
 
+	// Pace one Opus frame every 20ms to avoid bursting TTS audio into the send
+	// buffer all at once. Without pacing, WriteRTP fails mid-burst and audio is
+	// clipped. Real-time mic audio already arrives at 20ms/frame so the ticker
+	// adds no net delay for that path.
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
 	var timestamp uint32
 	var seqNum uint16
 	packetsSent := 0
 	for {
+		// Wait for the next frame.
+		var frame []byte
 		select {
-		case frame, open := <-audio:
+		case f, open := <-audio:
 			if !open {
 				slog.Info("webrtc_send_audio_done", "session", sessionID, "packets_sent", packetsSent)
 				return nil
 			}
-			if err := track.WriteRTP(&pionrtp.Packet{
-				Header: pionrtp.Header{
-					Version:        2,
-					PayloadType:    111, // Opus
-					SequenceNumber: seqNum,
-					Timestamp:      timestamp,
-					SSRC:           1,
-				},
-				Payload: frame,
-			}); err != nil {
-				return fmt.Errorf("webrtc.SendAudio: write: %w", err)
-			}
-			seqNum++
-			packetsSent++
-			if packetsSent == 1 {
-				slog.Info("webrtc_rtp_first_packet", "session", sessionID, "seq", seqNum-1, "bytes", len(frame))
-			}
-			timestamp += 960 // 20ms at 48kHz
+			frame = f
 		case <-ctx.Done():
 			return nil
 		}
+
+		// Pace to real-time: wait for the next 20ms tick before writing.
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return nil
+		}
+
+		if err := track.WriteRTP(&pionrtp.Packet{
+			Header: pionrtp.Header{
+				Version:        2,
+				PayloadType:    111, // Opus
+				SequenceNumber: seqNum,
+				Timestamp:      timestamp,
+				SSRC:           1,
+			},
+			Payload: frame,
+		}); err != nil {
+			return fmt.Errorf("webrtc.SendAudio: write: %w", err)
+		}
+		seqNum++
+		packetsSent++
+		if packetsSent == 1 {
+			slog.Info("webrtc_rtp_first_packet", "session", sessionID, "seq", seqNum-1, "bytes", len(frame))
+		}
+		timestamp += 960 // 20ms at 48kHz
 	}
 }
 
