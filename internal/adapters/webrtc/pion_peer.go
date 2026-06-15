@@ -308,6 +308,7 @@ func (p *PionPeer) SendAudio(ctx context.Context, sessionID string, audio <-chan
 	}
 
 	var timestamp uint32
+	var seqNum uint16
 	for {
 		select {
 		case frame, open := <-audio:
@@ -318,7 +319,7 @@ func (p *PionPeer) SendAudio(ctx context.Context, sessionID string, audio <-chan
 				Header: pionrtp.Header{
 					Version:        2,
 					PayloadType:    111, // Opus
-					SequenceNumber: 0,   // Pion auto-increments
+					SequenceNumber: seqNum,
 					Timestamp:      timestamp,
 					SSRC:           1,
 				},
@@ -326,6 +327,7 @@ func (p *PionPeer) SendAudio(ctx context.Context, sessionID string, audio <-chan
 			}); err != nil {
 				return fmt.Errorf("webrtc.SendAudio: write: %w", err)
 			}
+			seqNum++
 			timestamp += 960 // 20ms at 48kHz
 		case <-ctx.Done():
 			return nil
