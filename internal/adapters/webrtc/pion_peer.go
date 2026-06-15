@@ -4,6 +4,7 @@ package webrtc
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	pionrtp "github.com/pion/rtp"
