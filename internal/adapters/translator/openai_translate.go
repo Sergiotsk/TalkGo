@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	defaultTranslateModel   = "gpt-4o"
+	defaultTranslateModel   = "gpt-4o-mini"
 	defaultTranslateBaseURL = "https://api.openai.com/v1/chat/completions"
 )
 

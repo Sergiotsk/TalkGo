@@ -83,6 +83,26 @@ type sttFormat struct {
 type sttTranscription struct {
 	Model    string `json:"model"`
 	Language string `json:"language,omitempty"`
+	Prompt   string `json:"prompt,omitempty"`
+}
+
+// sttPromptForLang returns a language-anchoring prompt to reduce Whisper hallucinations
+// when ambient audio in a different language bleeds into the microphone.
+func sttPromptForLang(lang string) string {
+	prompts := map[string]string{
+		"es": "Conversación en español.",
+		"en": "Conversation in English.",
+		"fr": "Conversation en français.",
+		"pt": "Conversa em português.",
+		"de": "Gespräch auf Deutsch.",
+		"it": "Conversazione in italiano.",
+		"zh": "中文对话。",
+		"ja": "日本語の会話。",
+		"ko": "한국어 대화.",
+		"ar": "محادثة باللغة العربية.",
+		"ru": "Разговор на русском языке.",
+	}
+	return prompts[lang]
 }
 
 type sttTurnDetection struct {
@@ -114,6 +134,7 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 				Transcription: sttTranscription{
 					Model:    w.cfg.TranscriptionModel,
 					Language: lang,
+					Prompt:   sttPromptForLang(lang),
 				},
 				TurnDetection: sttTurnDetection{Type: "server_vad"},
 			},
