@@ -24,9 +24,9 @@ type PipelineTranslatorConfig struct {
 // Translations run concurrently (fan-out) and are drained in arrival order so
 // audio playback remains coherent. See ADR-0005, ADR-0006, ADR-0007.
 type PipelineTranslator struct {
-	stt         *WhisperSTT
-	translate   *TextTranslator
-	ttsClient   *tts.OpenAITTS
+	stt          *WhisperSTT
+	translate    *TextTranslator
+	ttsClient    *tts.OpenAITTS
 	langDetector lingua.LanguageDetector
 }
 
