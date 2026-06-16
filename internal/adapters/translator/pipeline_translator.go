@@ -94,6 +94,10 @@ func (p *PipelineTranslator) TranslateStream(
 				if original == "" {
 					continue
 				}
+				if isPromptEcho(original, sourceLang) {
+					slog.Debug("pipeline_prompt_echo_dropped", "lang", sourceLang, "text", original)
+					continue
+				}
 				if !p.isExpectedLanguage(original, sourceLang) {
 					slog.Warn("pipeline_lang_mismatch_dropped", "expected", sourceLang, "text", original)
 					continue
@@ -163,11 +167,19 @@ func (p *PipelineTranslator) TranslateStream(
 	return driven.TranslateResult{Audio: audioCh, Transcript: transcriptCh}, nil
 }
 
+// isPromptEcho returns true if the transcript matches the STT prompt text exactly.
+// Whisper sometimes hallucinates the initial prompt during silence — these must be dropped
+// before reaching translation.
+func isPromptEcho(text, lang string) bool {
+	prompt := sttPromptForLang(lang)
+	return prompt != "" && strings.TrimSpace(text) == strings.TrimSpace(prompt)
+}
+
 // isExpectedLanguage returns false if the text is confidently detected as a language
-// different from sourceLang. Short texts (<20 runes) are always accepted — insufficient
+// different from sourceLang. Short texts (<8 runes) are always accepted — insufficient
 // signal for reliable detection. Inconclusive detections also pass through.
 func (p *PipelineTranslator) isExpectedLanguage(text, sourceLang string) bool {
-	if len([]rune(text)) < 20 {
+	if len([]rune(text)) < 8 {
 		return true
 	}
 	detected, ok := p.langDetector.DetectLanguageOf(text)
