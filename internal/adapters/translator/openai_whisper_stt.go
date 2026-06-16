@@ -189,6 +189,7 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioIn <-chan []byte, lang
 			}
 			var msg sttMessage
 			if err := conn.ReadJSON(&msg); err != nil {
+				slog.Warn("whisper_stt_receiver_exit", "lang", lang, "err", err)
 				return
 			}
 			switch msg.Type {

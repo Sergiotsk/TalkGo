@@ -203,6 +203,7 @@ func (t *OpenAIRealtimeTranslator) TranslateStream(
 			}
 			var msg wsMessage
 			if err := conn.ReadJSON(&msg); err != nil {
+				slog.Warn("openai_realtime_receiver_exit", "err", err)
 				return
 			}
 			switch msg.Type {
