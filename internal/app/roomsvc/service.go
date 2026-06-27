@@ -468,7 +468,36 @@ func (s *Service) HandleSignaling(ctx context.Context, msg driving.SignalingMess
 		if err != nil {
 			return driving.SignalingMessage{Type: "error", Message: err.Error()}, nil
 		}
-		return driving.SignalingMessage{Type: "joined", SessionID: sessID, RoomID: msg.RoomID}, nil
+
+		// Store display name on the newly created session.
+		s.mu.Lock()
+		if sess, ok := s.sessions[sessID]; ok {
+			sess.Name = msg.Name
+		}
+		s.mu.Unlock()
+
+		// If the room is now full, relay names bidirectionally:
+		// - include the peer's name in this "joined" response
+		// - notify the peer with this user's name via "peer-joined"
+		resp := driving.SignalingMessage{Type: "joined", SessionID: sessID, RoomID: msg.RoomID}
+		var peerSessID string
+		s.mu.RLock()
+		for _, existingSess := range s.sessions {
+			if existingSess.RoomID == msg.RoomID && existingSess.ID != sessID {
+				resp.Name = existingSess.Name
+				peerSessID = existingSess.ID
+				break
+			}
+		}
+		s.mu.RUnlock()
+
+		if peerSessID != "" {
+			s.notifier.NotifySession(peerSessID, "peer-joined", map[string]string{
+				"name": msg.Name,
+			})
+		}
+
+		return resp, nil
 
 	case "offer":
 		if err := s.peer.HandleOffer(ctx, msg.SessionID, msg.SDP); err != nil {

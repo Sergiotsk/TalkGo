@@ -87,19 +87,23 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   circle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
   circleActive: {
     backgroundColor: '#4CAF50',
   },
   circleInactive: {
-    backgroundColor: '#9E9E9E',
+    backgroundColor: '#2a2a2a',
+    borderWidth: 2,
+    borderColor: '#444',
   },
   label: {
-    marginTop: 8,
-    fontSize: 12,
-    color: '#666',
+    marginTop: 12,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#cccccc',
+    letterSpacing: 0.3,
   },
 });

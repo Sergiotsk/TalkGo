@@ -15,6 +15,7 @@ export interface JoinMessage {
   room_id: string;
   user_id: string;
   lang: string;
+  name?: string;
 }
 
 export interface OfferMessage {
@@ -45,6 +46,12 @@ export interface JoinedMessage {
   type: 'joined';
   session_id: string;
   room_id: string;
+  name?: string; // peer's display name, present when joining a room that already has a participant
+}
+
+export interface PeerJoinedMessage {
+  type: 'peer-joined';
+  name?: string;
 }
 
 export interface AnswerMessage {
@@ -80,6 +87,7 @@ export type IncomingMessage =
   | AnswerMessage
   | IncomingIceCandidateMessage
   | PeerLeftMessage
+  | PeerJoinedMessage
   | RoomClosedMessage
   | ErrorMessage;
 
@@ -93,6 +101,7 @@ export interface SignalingMessage {
     | 'ice-candidate'
     | 'leave'
     | 'peer-left'
+    | 'peer-joined'
     | 'room-closed'
     | 'error'
     | 'transcript';
@@ -103,6 +112,7 @@ export interface SignalingMessage {
   candidate?: string;
   message?: string;
   lang?: string;
+  name?: string;
   reason?: string;
   text?: string;
 }

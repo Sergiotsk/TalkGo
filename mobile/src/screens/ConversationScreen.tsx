@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef } from 'react';
-import { Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ConnectionStatus } from '../components/ConnectionStatus';
 import { EndCallButton } from '../components/EndCallButton';
@@ -15,6 +15,7 @@ import { useSignaling } from '../hooks/useSignaling';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { initAudioService, startAudioService, stopAudioService } from '../services/signalingService';
 import { useSessionStore } from '../store/sessionStore';
+import { useUserStore } from '../store/userStore';
 import { RootStackParamList } from '../navigation/types';
 
 type ConversationScreenProps = NativeStackScreenProps<RootStackParamList, 'Conversation'>;
@@ -25,6 +26,8 @@ type ConversationScreenProps = NativeStackScreenProps<RootStackParamList, 'Conve
  */
 export function ConversationScreen({ route, navigation }: ConversationScreenProps): React.JSX.Element {
   const { roomId, shortCode, userId, serverUrl, localLang, peerLang } = route.params;
+  const { name } = useUserStore();
+  const [peerName, setPeerName] = useState('');
   // Store state
   const connectionState = useSessionStore((s) => s.connectionState);
   const sessionId = useSessionStore((s) => s.sessionId);
@@ -55,8 +58,7 @@ export function ConversationScreen({ route, navigation }: ConversationScreenProp
     };
   }, []);
 
-  // Keep screen on during call
-  useKeepAwake();
+  useKeepAwake(true);
 
   // Session timer (increments while connected)
   useSessionTimer();
@@ -103,10 +105,10 @@ export function ConversationScreen({ route, navigation }: ConversationScreenProp
   const signaling = useSignaling({
     serverUrl,
     roomId,
-    onJoined: (newSessionId) => {
+    onJoined: (newSessionId, incomingPeerName) => {
       console.log('[Conv] joined, sessionId:', newSessionId);
       connect(roomId, shortCode, newSessionId, localLang, peerLang);
-      // Offer is sent by the useEffect below once localStream is ready
+      if (incomingPeerName) setPeerName(incomingPeerName);
     },
     onAnswer: (sdp) => {
       console.log('[Conv] received answer, sdp length:', sdp.length);
@@ -118,11 +120,15 @@ export function ConversationScreen({ route, navigation }: ConversationScreenProp
       void webrtc.addIceCandidate(candidate);
     },
     onPeerLeft: (_peerSessionId) => {
-      // Show peer-left UI — room transitions to idle but doesn't disconnect
       setConnectionState('idle');
+      setPeerName('');
+    },
+    onPeerJoined: (incomingName) => {
+      setPeerName(incomingName);
     },
     onRoomClosed: (_reason) => {
       disconnect();
+      navigation.replace('Home');
     },
     onError: (message) => {
       console.error('[Conv] server error:', message);
@@ -141,7 +147,7 @@ export function ConversationScreen({ route, navigation }: ConversationScreenProp
     if (signaling.isConnected && !hasJoinedRef.current) {
       hasJoinedRef.current = true;
       setConnectionState('connecting');
-      signaling.sendJoin(userId, localLang);
+      signaling.sendJoin(userId, localLang, name);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signaling.isConnected]);
@@ -201,25 +207,26 @@ export function ConversationScreen({ route, navigation }: ConversationScreenProp
       <View style={styles.vuRow}>
         <VUMeter
           speaking={localSpeaking}
-          label="Vos"
+          label={name || 'Vos'}
           testID="vu-local"
         />
         <VUMeter
           speaking={peerSpeaking}
-          label="Ellos"
+          label={peerName || 'Ellos'}
           testID="vu-peer"
         />
       </View>
 
-      {/* Transcript */}
-      {lastTranscript ? (
-        <View style={styles.transcriptBox}>
-          <Text style={styles.transcriptLabel}>Traducción</Text>
-          <ScrollView>
-            <Text style={styles.transcriptText}>{lastTranscript}</Text>
-          </ScrollView>
-        </View>
-      ) : null}
+      {/* Subtítulos */}
+      <View style={styles.subtitleArea}>
+        {lastTranscript ? (
+          <Text style={styles.subtitleText}>{lastTranscript}</Text>
+        ) : (
+          <Text style={styles.subtitlePlaceholder}>
+            {connectionState === 'connected' ? 'Escuchando...' : ''}
+          </Text>
+        )}
+      </View>
 
       {/* Controls */}
       <View style={styles.controls}>
@@ -235,7 +242,7 @@ export function ConversationScreen({ route, navigation }: ConversationScreenProp
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: '#0f0f0f',
     padding: 16,
   },
   statusRow: {
@@ -244,33 +251,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  transcriptBox: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 12,
-    padding: 14,
-    marginVertical: 10,
-    maxHeight: 120,
-    borderLeftWidth: 3,
-    borderLeftColor: '#4caf50',
-  },
-  transcriptLabel: {
-    color: '#4caf50',
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 6,
-  },
-  transcriptText: {
-    color: '#ffffff',
-    fontSize: 16,
-    lineHeight: 22,
-  },
   vuRow: {
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
+  },
+  subtitleArea: {
+    minHeight: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: -16,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  subtitleText: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 28,
+  },
+  subtitlePlaceholder: {
+    color: '#444',
+    fontSize: 14,
+    textAlign: 'center',
   },
   controls: {
     flexDirection: 'row',

@@ -4,10 +4,11 @@ import type { OutgoingMessage, SignalingMessage } from '../types/signaling';
 export interface UseSignalingConfig {
   serverUrl: string;
   roomId: string;
-  onJoined: (sessionId: string) => void;
+  onJoined: (sessionId: string, peerName?: string) => void;
   onAnswer: (sdp: string) => void;
   onIceCandidate: (candidate: string) => void;
   onPeerLeft: (sessionId: string) => void;
+  onPeerJoined?: (name: string) => void;
   onRoomClosed: (reason: string) => void;
   onError: (message: string) => void;
   onTranscript?: (text: string) => void;
@@ -15,7 +16,7 @@ export interface UseSignalingConfig {
 
 export interface UseSignalingReturn {
   isConnected: boolean;
-  sendJoin: (userId: string, lang: string) => void;
+  sendJoin: (userId: string, lang: string, name?: string) => void;
   sendOffer: (sessionId: string, sdp: string) => void;
   sendIceCandidate: (sessionId: string, candidate: string) => void;
   sendLeave: (sessionId: string) => void;
@@ -62,7 +63,10 @@ export function useSignaling(config: UseSignalingConfig): UseSignalingReturn {
       const cb = configRef.current;
       switch (msg.type) {
         case 'joined':
-          cb.onJoined(msg.session_id ?? '');
+          cb.onJoined(msg.session_id ?? '', msg.name);
+          break;
+        case 'peer-joined':
+          cb.onPeerJoined?.(msg.name ?? '');
           break;
         case 'answer':
           cb.onAnswer(msg.sdp ?? '');
@@ -105,12 +109,13 @@ export function useSignaling(config: UseSignalingConfig): UseSignalingReturn {
   }, []);
 
   const sendJoin = useCallback(
-    (userId: string, lang: string) => {
+    (userId: string, lang: string, name?: string) => {
       send({
         type: 'join',
         room_id: config.roomId,
         user_id: userId,
         lang,
+        ...(name ? { name } : {}),
       });
     },
     [send, config.roomId]

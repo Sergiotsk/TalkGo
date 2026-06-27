@@ -24,6 +24,7 @@ type SignalingMessage struct {
 	Candidate string `json:"candidate,omitempty"`
 	Message   string `json:"message,omitempty"`
 	Lang      string `json:"lang,omitempty"`   // participant language on join
+	Name      string `json:"name,omitempty"`   // display name sent on join; peer name relayed in joined/peer-joined
 	Reason    string `json:"reason,omitempty"` // error reason for pipeline errors
 }
 

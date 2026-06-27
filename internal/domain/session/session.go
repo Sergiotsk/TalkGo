@@ -26,6 +26,7 @@ type Session struct {
 	RoomID     string
 	UserID     string
 	Lang       string
+	Name       string // display name provided by the client on join
 	JoinedAt   time.Time
 	State      State
 	ErrorCount int // incremented on pipeline errors
